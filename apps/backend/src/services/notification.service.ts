@@ -1,7 +1,15 @@
 import { supabase } from '../config/supabase.js';
+import { emailService } from './email.service.js';
 import type { ServiceResponse } from './index.js';
 
-export type NotificationType = 'booking_created' | 'booking_confirmed' | 'booking_cancelled' | 'payment_received';
+export type NotificationType =
+  | 'booking_created'
+  | 'booking_confirmed'
+  | 'booking_cancelled'
+  | 'payment_received'
+  | 'booking_reminder'
+  | 'review_requested'
+  | 'system_alert';
 
 export interface Notification {
   id: string;
@@ -12,10 +20,36 @@ export interface Notification {
   created_at?: string;
 }
 
+export interface NotificationPreferences {
+  id?: string;
+  user_id: string;
+  email_notifications: boolean;
+  push_notifications: boolean;
+  notification_types: Partial<Record<NotificationType, boolean>>;
+  updated_at?: string;
+}
+
+export interface ScheduledNotification {
+  userId: string;
+  type: NotificationType;
+  data: Record<string, unknown>;
+  sendAfter: Date;
+}
+
+const EMAIL_TEMPLATES: Partial<Record<NotificationType, string>> = {
+  booking_created: 'Booking Created',
+  booking_confirmed: 'Booking Confirmed',
+  booking_cancelled: 'Booking Cancelled',
+  payment_received: 'Payment Received',
+  booking_reminder: 'Booking Reminder',
+  review_requested: 'Review Requested',
+  system_alert: 'System Alert',
+};
+
 export async function createNotification(
   userId: string,
   type: NotificationType,
-  data: Record<string, unknown>,
+  data: Record<string, unknown>
 ): Promise<ServiceResponse<Notification>> {
   const { data: notification, error } = await supabase
     .from('notifications')
@@ -39,7 +73,10 @@ export async function getNotifications(userId: string): Promise<ServiceResponse<
   return { success: true, data: (data ?? []) as Notification[] };
 }
 
-export async function markAsRead(notificationId: string, userId: string): Promise<ServiceResponse<void>> {
+export async function markAsRead(
+  notificationId: string,
+  userId: string
+): Promise<ServiceResponse<void>> {
   const { error } = await supabase
     .from('notifications')
     .update({ read: true })
@@ -60,3 +97,117 @@ export async function markAllAsRead(userId: string): Promise<ServiceResponse<voi
   if (error) return { success: false, error: error.message };
   return { success: true };
 }
+
+export async function deleteNotification(
+  notificationId: string,
+  userId: string
+): Promise<ServiceResponse<void>> {
+  const { error } = await supabase
+    .from('notifications')
+    .delete()
+    .eq('id', notificationId)
+    .eq('user_id', userId);
+
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+export async function getPreferences(
+  userId: string
+): Promise<ServiceResponse<NotificationPreferences>> {
+  const { data, error } = await supabase
+    .from('notification_preferences')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) return { success: false, error: error.message };
+
+  if (!data) {
+    const defaults: NotificationPreferences = {
+      user_id: userId,
+      email_notifications: true,
+      push_notifications: true,
+      notification_types: {},
+    };
+    return { success: true, data: defaults };
+  }
+
+  return { success: true, data: data as NotificationPreferences };
+}
+
+export async function updatePreferences(
+  userId: string,
+  prefs: Partial<Omit<NotificationPreferences, 'user_id' | 'id'>>
+): Promise<ServiceResponse<NotificationPreferences>> {
+  const { data, error } = await supabase
+    .from('notification_preferences')
+    .upsert({ user_id: userId, ...prefs, updated_at: new Date().toISOString() })
+    .select()
+    .single();
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: data as NotificationPreferences };
+}
+
+async function shouldSendEmail(userId: string, type: NotificationType): Promise<boolean> {
+  const prefsResult = await getPreferences(userId);
+  if (!prefsResult.success || !prefsResult.data) return true;
+  const prefs = prefsResult.data;
+  if (!prefs.email_notifications) return false;
+  const typeEnabled = prefs.notification_types[type];
+  return typeEnabled !== false;
+}
+
+export async function createNotificationWithEmail(
+  userId: string,
+  type: NotificationType,
+  data: Record<string, unknown>
+): Promise<ServiceResponse<Notification>> {
+  const result = await createNotification(userId, type, data);
+  if (!result.success) return result;
+
+  const sendEmail = await shouldSendEmail(userId, type);
+  if (sendEmail && data.userEmail) {
+    const emailData = {
+      to: String(data.userEmail),
+      userName: String(data.userName ?? ''),
+      propertyTitle: String(data.propertyTitle ?? ''),
+      checkIn: String(data.checkIn ?? ''),
+      checkOut: String(data.checkOut ?? ''),
+      totalPrice: Number(data.totalPrice ?? 0),
+    };
+
+    const emailPromise =
+      type === 'booking_created'
+        ? emailService.sendBookingCreated(emailData)
+        : type === 'booking_confirmed'
+          ? emailService.sendBookingConfirmed(emailData)
+          : type === 'booking_cancelled'
+            ? emailService.sendBookingCancelled(emailData)
+            : Promise.resolve();
+
+    await emailPromise.catch((err) =>
+      console.error(`[NotificationService] Email send failed for type ${type}:`, err)
+    );
+  }
+
+  return result;
+}
+
+export async function sendBatchedNotifications(
+  notifications: ScheduledNotification[]
+): Promise<ServiceResponse<number>> {
+  const now = new Date();
+  const due = notifications.filter((n) => n.sendAfter <= now);
+
+  let sent = 0;
+  for (const n of due) {
+    const result = await createNotificationWithEmail(n.userId, n.type, n.data);
+    if (result.success) sent++;
+  }
+
+  return { success: true, data: sent };
+}
+
+export { EMAIL_TEMPLATES };
