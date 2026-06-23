@@ -5,6 +5,8 @@ import BookingHistory from '@/components/dashboard/BookingHistory';
 import Analytics from '@/components/dashboard/Analytics';
 import NotificationSystem from '@/components/dashboard/NotificationSystem';
 import WalletTransaction from './components/WalletTransaction';
+import BookingPreferences from './components/BookingPreferences';
+import ExportBookingsButton from './components/ExportBookingsButton';
 
 export default function TenantDashboard() {
   const { bookings, isLoading, error } = useDashboard();
@@ -46,7 +48,10 @@ export default function TenantDashboard() {
             <h1 className="text-3xl font-bold text-gray-900">Tenant Dashboard</h1>
             <p className="text-gray-600 mt-1">Manage your bookings and transactions</p>
           </div>
-          <NotificationSystem />
+          <div className="flex items-center gap-3">
+            <ExportBookingsButton bookings={formattedBookings} />
+            <NotificationSystem />
+          </div>
         </div>
 
         {/* Error State */}
@@ -77,6 +82,9 @@ export default function TenantDashboard() {
               <Analytics />
               <WalletTransaction transactions={mockTransactions} />
             </div>
+
+            {/* Booking Preferences */}
+            <BookingPreferences bookings={formattedBookings} />
           </>
         )}
       </div>
