@@ -10,6 +10,10 @@ import RecentTransactions from './components/RecentTransactions';
 import AvailableBalance from './components/AvailableBalance';
 import AddPropertyModal from './components/AddPropertyModal';
 import PropertyList from './components/PropertyList';
+import EarningsTrendChart from './components/EarningsTrendChart';
+import ComparativeGrowth from './components/ComparativeGrowth';
+import OccupancyInsights from './components/OccupancyInsights';
+import ExportReportButton from './components/ExportReportButton';
 import { mockHostData } from './mockData';
 
 export default function HostDashboard() {
@@ -35,13 +39,19 @@ export default function HostDashboard() {
             <h1 className="text-3xl font-bold text-gray-900">Host Dashboard</h1>
             <p className="text-gray-600 mt-1">Manage your properties and earnings</p>
           </div>
-          <button
-            onClick={() => setShowAddProperty(true)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition"
-          >
-            <Plus size={20} />
-            Add Property
-          </button>
+          <div className="flex items-center gap-3">
+            <ExportReportButton
+              monthlyMetrics={mockHostData.monthlyMetrics}
+              payoutHistory={mockHostData.payoutHistory}
+            />
+            <button
+              onClick={() => setShowAddProperty(true)}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition"
+            >
+              <Plus size={20} />
+              Add Property
+            </button>
+          </div>
         </div>
 
         {/* Available Balance */}
@@ -53,6 +63,13 @@ export default function HostDashboard() {
         {/* Stats */}
         <BookingStats {...mockHostData.bookingStats} />
         <EarningsStats {...mockHostData.earningsStats} />
+
+        {/* Analytics */}
+        <EarningsTrendChart data={mockHostData.monthlyMetrics} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <ComparativeGrowth metrics={mockHostData.monthlyMetrics} />
+          <OccupancyInsights occupancy={mockHostData.occupancy} />
+        </div>
 
         {/* Properties */}
         <PropertyList properties={mockHostData.properties} />
