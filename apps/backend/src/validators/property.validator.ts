@@ -133,6 +133,14 @@ export const propertySearchSchema = z.object({
   { message: 'max_price must be >= min_price', path: ['max_price'] },
 );
 
+// ─── Geo search query schema ──────────────────────────────────────────────────
+
+export const geoSearchSchema = z.object({
+  lat: z.coerce.number().min(-90, 'lat must be between -90 and 90').max(90, 'lat must be between -90 and 90'),
+  lng: z.coerce.number().min(-180, 'lng must be between -180 and 180').max(180, 'lng must be between -180 and 180'),
+  radiusKm: z.coerce.number().positive('radiusKm must be positive').max(500, 'radiusKm must not exceed 500').default(50),
+});
+
 // ─── Middleware factories ─────────────────────────────────────────────────────
 
 /**
