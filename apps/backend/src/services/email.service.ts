@@ -14,6 +14,11 @@ type BookingEmailData = {
   totalPrice: number;
 };
 
+type PasswordResetEmailData = {
+  to: string;
+  token: string;
+};
+
 function createTransport() {
   if (!process.env.SMTP_HOST) return null;
 
@@ -66,6 +71,17 @@ export const emailService = {
       'Booking Cancelled — Rentars',
       `<p>Hi ${data.userName},</p>
        <p>Your booking for <strong>${data.propertyTitle}</strong> has been cancelled.</p>`,
+    );
+  },
+
+  async sendPasswordResetEmail(data: PasswordResetEmailData): Promise<void> {
+    const resetUrl = `${process.env.FRONTEND_URL ?? 'https://rentars.app'}/reset-password?token=${data.token}`;
+    await send(
+      data.to,
+      'Reset your Rentars password',
+      `<p>Someone requested a password reset for your Rentars account.</p>
+       <p><a href="${resetUrl}">Click here to reset your password</a></p>
+       <p>This link expires in 60 minutes. If you did not request a reset, you can ignore this email.</p>`,
     );
   },
 };
