@@ -17,13 +17,13 @@ import {
   reorderImages,
   setAsPrimary,
 } from '@/controllers/propertyImage.controller.js';
-import { searchPropertiesEndpoint } from '@/controllers/propertySearch.controller.js';
 import {
   getAvailability,
   addAvailabilityBlock,
   removeAvailabilityBlock,
 } from '@/controllers/availability.controller.js';
 import { authenticate } from '@/middleware/auth.middleware.js';
+import { requireEmailVerified } from '@/middleware/emailVerified.middleware.js';
 import { upload } from '@/middleware/multer.js';
 
 const router = Router();
@@ -43,8 +43,8 @@ router.get('/search/trending', trendingSearchesHandler);
 // GET /api/v1/properties/:id
 router.get('/:id', getProperty);
 
-// POST /api/v1/properties
-router.post('/', authenticate, createPropertyHandler);
+// POST /api/v1/properties  (requires email verification)
+router.post('/', authenticate, requireEmailVerified, createPropertyHandler);
 
 // PUT /api/v1/properties/:id
 router.put('/:id', authenticate, updatePropertyHandler);

@@ -4,6 +4,8 @@ import {
   registerUser,
   generateWalletChallenge,
   verifyWalletChallenge,
+  verifyEmail,
+  resendVerification,
 } from '@/services/auth.service.js';
 import { AuthError } from '@/types/errors.js';
 
@@ -57,4 +59,20 @@ export async function walletVerify(req: Request, res: Response): Promise<void> {
     }
     throw err;
   }
+}
+
+export async function verifyEmailHandler(req: Request, res: Response): Promise<void> {
+  const token = typeof req.query.token === 'string' ? req.query.token.trim() : '';
+  if (!token) {
+    res.status(422).json({ error: 'token query parameter is required' });
+    return;
+  }
+  await verifyEmail(token);
+  res.json({ message: 'Email verified successfully.' });
+}
+
+export async function resendVerificationHandler(req: Request, res: Response): Promise<void> {
+  const { email } = req.body;
+  await resendVerification(email);
+  res.json({ message: 'If your account exists and is unverified, a new verification email has been sent.' });
 }

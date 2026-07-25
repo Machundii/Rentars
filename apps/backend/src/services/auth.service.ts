@@ -4,11 +4,19 @@
  * Controllers should call these functions instead of touching Supabase directly.
  */
 
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { Keypair, TransactionBuilder, Networks, BASE_FEE } from '@stellar/stellar-sdk';
 import { supabase } from '@/config/supabase.js';
 import { AuthError, AuthErrorCode } from '@/types/errors.js';
+import { emailService } from './email.service.js';
 import type { ServiceResponse } from './index.js';
+
+const VERIFICATION_TOKEN_EXPIRES_MINUTES = 24 * 60; // 24 hours
+
+function hashToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,6 +77,20 @@ export async function registerUser(
       'Registration failed: no user returned',
     );
   }
+
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + VERIFICATION_TOKEN_EXPIRES_MINUTES * 60 * 1000);
+
+  await supabase.from('users').upsert({
+    id: data.user.id,
+    email: data.user.email,
+    email_verified: false,
+    email_verification_token: tokenHash,
+    email_verification_expires_at: expiresAt.toISOString(),
+  });
+
+  await emailService.sendVerificationEmail({ to: data.user.email!, token: rawToken });
 
   const user: AuthUser = {
     id: data.user.id,
@@ -284,4 +306,86 @@ export async function verifyWalletChallenge(
     success: true,
     data: { token, user },
   };
+}
+
+// ─── Email verification ───────────────────────────────────────────────────────
+
+/**
+ * Mark an account as verified using the raw token from the verification email.
+ */
+export async function verifyEmail(rawToken: string): Promise<ServiceResponse<void>> {
+  if (!rawToken) {
+    throw new AuthError(AuthErrorCode.INVALID_TOKEN, 'Verification token is required');
+  }
+
+  const tokenHash = hashToken(rawToken);
+
+  const { data: userRow, error } = await supabase
+    .from('users')
+    .select('id, email_verified, email_verification_expires_at')
+    .eq('email_verification_token', tokenHash)
+    .single();
+
+  if (error || !userRow) {
+    throw new AuthError(AuthErrorCode.INVALID_TOKEN, 'Invalid verification token');
+  }
+
+  const row = userRow as {
+    id: string;
+    email_verified: boolean;
+    email_verification_expires_at: string | null;
+  };
+
+  if (row.email_verified) {
+    return { success: true };
+  }
+
+  if (!row.email_verification_expires_at || new Date(row.email_verification_expires_at) < new Date()) {
+    throw new AuthError(AuthErrorCode.TOKEN_EXPIRED, 'Verification token has expired');
+  }
+
+  await supabase
+    .from('users')
+    .update({
+      email_verified: true,
+      email_verification_token: null,
+      email_verification_expires_at: null,
+    })
+    .eq('id', row.id);
+
+  return { success: true };
+}
+
+/**
+ * Re-send the verification email for an unverified account.
+ * Rate-limited at the route level; always returns success to avoid enumeration.
+ */
+export async function resendVerification(email: string): Promise<ServiceResponse<void>> {
+  if (!email) {
+    throw new AuthError(AuthErrorCode.INVALID_CREDENTIALS, 'Email is required');
+  }
+
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('id, email_verified')
+    .eq('email', email.toLowerCase().trim())
+    .single();
+
+  if (userRow && !(userRow as { email_verified: boolean }).email_verified) {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + VERIFICATION_TOKEN_EXPIRES_MINUTES * 60 * 1000);
+
+    await supabase
+      .from('users')
+      .update({
+        email_verification_token: tokenHash,
+        email_verification_expires_at: expiresAt.toISOString(),
+      })
+      .eq('id', (userRow as { id: string }).id);
+
+    await emailService.sendVerificationEmail({ to: email, token: rawToken });
+  }
+
+  return { success: true };
 }

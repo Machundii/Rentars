@@ -41,6 +41,16 @@ export const loginSchema = z.object({
     .min(1, 'password is required'),
 });
 
+// ─── Email verification schemas ──────────────────────────────────────────────
+
+export const resendVerificationSchema = z.object({
+  email: z
+    .string({ required_error: 'email is required' })
+    .email('email must be a valid email address')
+    .toLowerCase()
+    .trim(),
+});
+
 // ─── Wallet Challenge schema ──────────────────────────────────────────────────
 
 export const walletChallengeSchema = z.object({

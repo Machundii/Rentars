@@ -14,6 +14,11 @@ type BookingEmailData = {
   totalPrice: number;
 };
 
+type VerificationEmailData = {
+  to: string;
+  token: string;
+};
+
 function createTransport() {
   if (!process.env.SMTP_HOST) return null;
 
@@ -66,6 +71,17 @@ export const emailService = {
       'Booking Cancelled — Rentars',
       `<p>Hi ${data.userName},</p>
        <p>Your booking for <strong>${data.propertyTitle}</strong> has been cancelled.</p>`,
+    );
+  },
+
+  async sendVerificationEmail(data: VerificationEmailData): Promise<void> {
+    const verifyUrl = `${process.env.FRONTEND_URL ?? 'https://rentars.app'}/verify-email?token=${data.token}`;
+    await send(
+      data.to,
+      'Verify your Rentars email address',
+      `<p>Welcome to Rentars!</p>
+       <p><a href="${verifyUrl}">Click here to verify your email address</a></p>
+       <p>This link expires in 24 hours.</p>`,
     );
   },
 };
