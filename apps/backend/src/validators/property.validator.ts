@@ -8,33 +8,13 @@
 
 import { z } from 'zod';
 import type { NextFunction, Request, Response } from 'express';
+import { CANONICAL_AMENITIES } from '@/types/amenities.js';
 
-// ─── Allowed amenities ────────────────────────────────────────────────────────
+// Re-export the canonical list so consumers can use either import path.
+export { CANONICAL_AMENITIES as ALLOWED_AMENITIES } from '@/types/amenities.js';
+export type { Amenity } from '@/types/amenities.js';
 
-export const ALLOWED_AMENITIES = [
-  'wifi',
-  'parking',
-  'pool',
-  'gym',
-  'air_conditioning',
-  'heating',
-  'kitchen',
-  'washer',
-  'dryer',
-  'tv',
-  'workspace',
-  'elevator',
-  'hot_tub',
-  'bbq_grill',
-  'fireplace',
-  'beach_access',
-  'ski_access',
-  'pet_friendly',
-  'smoking_allowed',
-  'wheelchair_accessible',
-] as const;
-
-export type Amenity = (typeof ALLOWED_AMENITIES)[number];
+const ALLOWED_AMENITIES = CANONICAL_AMENITIES;
 
 // ─── Location sub-schema ──────────────────────────────────────────────────────
 

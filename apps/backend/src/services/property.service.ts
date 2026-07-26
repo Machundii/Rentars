@@ -9,6 +9,7 @@
 import { supabase } from '@/config/supabase.js';
 import * as cache from './cache.service.js';
 import type { ServiceResponse } from './index.js';
+import { CANONICAL_AMENITIES } from '@/types/amenities.js';
 
 const TTL_ALL = 60;
 const TTL_ONE = 300;
@@ -48,6 +49,18 @@ export interface PropertySearchFilters {
   max_price?: number;
   bedrooms?: number;
   status?: string;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function validateAmenities(amenities: string[]): string | null {
+  const invalid = amenities.filter(
+    (a) => !(CANONICAL_AMENITIES as readonly string[]).includes(a),
+  );
+  if (invalid.length > 0) {
+    return `Unknown amenities: ${invalid.join(', ')}. Allowed: ${CANONICAL_AMENITIES.join(', ')}`;
+  }
+  return null;
 }
 
 // ─── Service functions ────────────────────────────────────────────────────────
@@ -112,6 +125,11 @@ export async function createProperty(
     return { success: false, error: 'Property title is required' };
   }
 
+  if (payload.amenities && payload.amenities.length > 0) {
+    const amenityError = validateAmenities(payload.amenities);
+    if (amenityError) return { success: false, error: amenityError };
+  }
+
   const { data, error } = await supabase
     .from('properties')
     .insert(payload)
@@ -146,6 +164,11 @@ export async function updateProperty(
 
   if (Object.keys(payload).length === 0) {
     return { success: false, error: 'No fields provided for update' };
+  }
+
+  if (payload.amenities && payload.amenities.length > 0) {
+    const amenityError = validateAmenities(payload.amenities);
+    if (amenityError) return { success: false, error: amenityError };
   }
 
   const { data, error } = await supabase
