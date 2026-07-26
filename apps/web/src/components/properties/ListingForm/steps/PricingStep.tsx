@@ -12,11 +12,76 @@ interface PricingStepProps {
 export default function PricingStep({ formData, setFormData, errors }: PricingStepProps) {
   return (
     <div className="space-y-6">
+      {/* ── Capacity ───────────────────────────────────────────────────── */}
+      <fieldset className="border border-gray-200 rounded-lg p-4">
+        <legend className="text-sm font-semibold text-gray-700 px-1">Capacity</legend>
+
+        <div className="grid grid-cols-3 gap-4 mt-2">
+          <div className={formStyles.formGroup}>
+            <label className={formStyles.label} htmlFor="maxGuests">
+              Max Guests
+            </label>
+            <input
+              id="maxGuests"
+              type="number"
+              min="1"
+              value={formData.maxGuests ?? ''}
+              onChange={(e) =>
+                setFormData({ ...formData, maxGuests: parseInt(e.target.value, 10) || 1 })
+              }
+              placeholder="1"
+              className={formStyles.input}
+            />
+            {errors.maxGuests && <p className={formStyles.error}>{errors.maxGuests}</p>}
+          </div>
+
+          <div className={formStyles.formGroup}>
+            <label className={formStyles.label} htmlFor="bedrooms">
+              Bedrooms
+            </label>
+            <input
+              id="bedrooms"
+              type="number"
+              min="0"
+              value={formData.bedrooms ?? ''}
+              onChange={(e) =>
+                setFormData({ ...formData, bedrooms: parseInt(e.target.value, 10) || 0 })
+              }
+              placeholder="0"
+              className={formStyles.input}
+            />
+            {errors.bedrooms && <p className={formStyles.error}>{errors.bedrooms}</p>}
+          </div>
+
+          <div className={formStyles.formGroup}>
+            <label className={formStyles.label} htmlFor="bathrooms">
+              Bathrooms
+            </label>
+            <input
+              id="bathrooms"
+              type="number"
+              min="0"
+              value={formData.bathrooms ?? ''}
+              onChange={(e) =>
+                setFormData({ ...formData, bathrooms: parseInt(e.target.value, 10) || 0 })
+              }
+              placeholder="0"
+              className={formStyles.input}
+            />
+            {errors.bathrooms && <p className={formStyles.error}>{errors.bathrooms}</p>}
+          </div>
+        </div>
+      </fieldset>
+
+      {/* ── Pricing ────────────────────────────────────────────────────── */}
       <div className={formStyles.formGroup}>
-        <label className={formStyles.label}>Price per Night (USD)</label>
+        <label className={formStyles.label} htmlFor="pricePerNight">
+          Price per Night (USDC)
+        </label>
         <div className="flex items-center gap-2">
           <span className="text-xl font-semibold">$</span>
           <input
+            id="pricePerNight"
             type="number"
             value={formData.pricePerNight || ''}
             onChange={(e) => setFormData({ ...formData, pricePerNight: Number(e.target.value) })}
@@ -29,10 +94,13 @@ export default function PricingStep({ formData, setFormData, errors }: PricingSt
       </div>
 
       <div className={formStyles.formGroup}>
-        <label className={formStyles.label}>Cleaning Fee (USD)</label>
+        <label className={formStyles.label} htmlFor="cleaningFee">
+          Cleaning Fee (USDC)
+        </label>
         <div className="flex items-center gap-2">
           <span className="text-xl font-semibold">$</span>
           <input
+            id="cleaningFee"
             type="number"
             value={formData.cleaningFee || ''}
             onChange={(e) => setFormData({ ...formData, cleaningFee: Number(e.target.value) })}
@@ -45,10 +113,13 @@ export default function PricingStep({ formData, setFormData, errors }: PricingSt
       </div>
 
       <div className={formStyles.formGroup}>
-        <label className={formStyles.label}>Service Fee (USD)</label>
+        <label className={formStyles.label} htmlFor="serviceFee">
+          Service Fee (USDC)
+        </label>
         <div className="flex items-center gap-2">
           <span className="text-xl font-semibold">$</span>
           <input
+            id="serviceFee"
             type="number"
             value={formData.serviceFee || ''}
             onChange={(e) => setFormData({ ...formData, serviceFee: Number(e.target.value) })}
@@ -61,8 +132,12 @@ export default function PricingStep({ formData, setFormData, errors }: PricingSt
       </div>
 
       <div className="p-4 bg-gray-50 rounded-lg">
-        <p className="text-sm font-semibold mb-2">Pricing Summary</p>
+        <p className="text-sm font-semibold mb-2">Summary</p>
         <div className="space-y-1 text-sm">
+          <div className="flex justify-between">
+            <span>Max Guests:</span>
+            <span>{formData.maxGuests ?? '—'}</span>
+          </div>
           <div className="flex justify-between">
             <span>Per Night:</span>
             <span>${formData.pricePerNight || 0}</span>

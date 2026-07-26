@@ -1,21 +1,32 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import BookingForm from '@/components/booking/BookingForm';
 import WalletConnectionModal from '@/components/booking/WalletConnectionModal';
-import { useTranslations } from '@/lib/i18n/useTranslations';
+import HouseRulesAcknowledgement, {
+  type HouseRules,
+} from '@/components/booking/HouseRulesAcknowledgement';
 import { isValidStellarAddress } from '@/lib/freighter-utils';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 export default function BookingPage() {
   const router = useRouter();
-  const t = useTranslations('booking');
+  const searchParams = useSearchParams();
+  const propertyId = searchParams.get('propertyId') || 'property-id';
+
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  // House rules state
+  const [houseRules, setHouseRules] = useState<HouseRules | null>(null);
+  const [rulesAcknowledgedAt, setRulesAcknowledgedAt] = useState('');
+
+  // Check for existing wallet connection on mount
   useEffect(() => {
     const savedAddress = localStorage.getItem('walletAddress');
     if (savedAddress && isValidStellarAddress(savedAddress)) {
@@ -24,36 +35,73 @@ export default function BookingPage() {
     }
   }, []);
 
+  // Fetch property rules
+  useEffect(() => {
+    if (!propertyId || propertyId === 'property-id') return;
+    const token = localStorage.getItem('token');
+    fetch(`${API_URL}/api/v1/properties/${propertyId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data) {
+          setHouseRules({
+            pets_allowed: data.pets_allowed,
+            smoking_allowed: data.smoking_allowed,
+            events_allowed: data.events_allowed,
+            quiet_hours_start: data.quiet_hours_start,
+            quiet_hours_end: data.quiet_hours_end,
+            additional_rules: data.additional_rules,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [propertyId]);
+
+  const hasRulesToAcknowledge =
+    houseRules !== null &&
+    (houseRules.pets_allowed !== undefined ||
+      houseRules.smoking_allowed !== undefined ||
+      houseRules.events_allowed !== undefined ||
+      houseRules.quiet_hours_start ||
+      houseRules.additional_rules);
+
+  const rulesGatePassed = !hasRulesToAcknowledge || !!rulesAcknowledgedAt;
+
   const handleBookingSubmit = async (data: {
     checkIn: Date;
     checkOut: Date;
     guestCount: number;
+    totalPrice: number;
   }) => {
     if (!walletConnected || !walletAddress) {
       setShowWalletModal(true);
       return;
     }
 
+    if (!rulesGatePassed) {
+      return; // button will be disabled, but guard anyway
+    }
+
     setIsLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/bookings`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            property_id: 'property-id',
-            check_in: data.checkIn.toISOString(),
-            check_out: data.checkOut.toISOString(),
-            guest_count: data.guestCount,
-            wallet_address: walletAddress,
-          }),
-        }
-      );
+      const response = await fetch(`${API_URL}/api/bookings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          property_id: propertyId,
+          check_in: data.checkIn.toISOString(),
+          check_out: data.checkOut.toISOString(),
+          guest_count: data.guestCount,
+          total_price: data.totalPrice,
+          wallet_address: walletAddress,
+          rules_acknowledged_at: rulesAcknowledgedAt || new Date().toISOString(),
+        }),
+      });
 
       if (response.ok) {
         const booking = await response.json();
@@ -113,12 +161,32 @@ export default function BookingPage() {
           )}
         </div>
 
-        <BookingForm
-          propertyId="property-id"
-          pricePerNight={100}
-          onSubmit={handleBookingSubmit}
-          isLoading={isLoading}
-        />
+        {/* House Rules — must be acknowledged before booking */}
+        {houseRules && (
+          <div className="mb-6">
+            <HouseRulesAcknowledgement
+              rules={houseRules}
+              acknowledged={!!rulesAcknowledgedAt}
+              onAcknowledge={(ts) => setRulesAcknowledgedAt(ts)}
+            />
+          </div>
+        )}
+
+        {/* Booking form — disabled when rules not yet acknowledged */}
+        <div className={hasRulesToAcknowledge && !rulesGatePassed ? 'opacity-50 pointer-events-none' : ''}>
+          {hasRulesToAcknowledge && !rulesGatePassed && (
+            <p className="text-sm text-amber-700 mb-3 flex items-center gap-2">
+              <AlertCircle size={15} aria-hidden="true" />
+              Please acknowledge the house rules above to continue.
+            </p>
+          )}
+          <BookingForm
+            propertyId={propertyId}
+            pricePerNight={100}
+            onSubmit={handleBookingSubmit}
+            isLoading={isLoading}
+          />
+        </div>
       </div>
 
       <WalletConnectionModal

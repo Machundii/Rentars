@@ -41,6 +41,26 @@ export const loginSchema = z.object({
     .min(1, 'password is required'),
 });
 
+// ─── Password reset schemas ───────────────────────────────────────────────────
+
+export const requestPasswordResetSchema = z.object({
+  email: z
+    .string({ required_error: 'email is required' })
+    .email('email must be a valid email address')
+    .toLowerCase()
+    .trim(),
+});
+
+export const confirmPasswordResetSchema = z.object({
+  token: z.string({ required_error: 'token is required' }).min(1, 'token is required'),
+  password: z
+    .string({ required_error: 'password is required' })
+    .min(8, 'password must be at least 8 characters')
+    .max(128, 'password must be at most 128 characters')
+    .regex(/[A-Z]/, 'password must contain at least one uppercase letter')
+    .regex(/[0-9]/, 'password must contain at least one number'),
+});
+
 // ─── Wallet Challenge schema ──────────────────────────────────────────────────
 
 export const walletChallengeSchema = z.object({

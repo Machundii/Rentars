@@ -4,11 +4,19 @@
  * Controllers should call these functions instead of touching Supabase directly.
  */
 
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { Keypair, TransactionBuilder, Networks, BASE_FEE } from '@stellar/stellar-sdk';
 import { supabase } from '@/config/supabase.js';
 import { AuthError, AuthErrorCode } from '@/types/errors.js';
+import { emailService } from './email.service.js';
 import type { ServiceResponse } from './index.js';
+
+const VERIFICATION_TOKEN_EXPIRES_MINUTES = 24 * 60; // 24 hours
+
+function hashToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,6 +77,20 @@ export async function registerUser(
       'Registration failed: no user returned',
     );
   }
+
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + VERIFICATION_TOKEN_EXPIRES_MINUTES * 60 * 1000);
+
+  await supabase.from('users').upsert({
+    id: data.user.id,
+    email: data.user.email,
+    email_verified: false,
+    email_verification_token: tokenHash,
+    email_verification_expires_at: expiresAt.toISOString(),
+  });
+
+  await emailService.sendVerificationEmail({ to: data.user.email!, token: rawToken });
 
   const user: AuthUser = {
     id: data.user.id,
@@ -284,4 +306,105 @@ export async function verifyWalletChallenge(
     success: true,
     data: { token, user },
   };
+}
+
+// ─── Password reset ───────────────────────────────────────────────────────────
+
+const RESET_TOKEN_EXPIRES_MINUTES = 60;
+
+function hashToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+/**
+ * Request a password reset for the given email.
+ * Always returns success to prevent user enumeration — the email is only
+ * sent when an account with that address actually exists.
+ */
+export async function requestPasswordReset(
+  email: string,
+): Promise<ServiceResponse<void>> {
+  if (!email) {
+    throw new AuthError(AuthErrorCode.INVALID_CREDENTIALS, 'Email is required');
+  }
+
+  const { data: userData } = await supabase.auth.admin.listUsers();
+  const user = (userData?.users ?? []).find((u) => u.email === email.toLowerCase().trim());
+
+  if (user) {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRES_MINUTES * 60 * 1000);
+
+    await supabase.from('password_reset_tokens').insert({
+      user_id: user.id,
+      token_hash: tokenHash,
+      expires_at: expiresAt.toISOString(),
+    });
+
+    await emailService.sendPasswordResetEmail({ to: email, token: rawToken });
+  }
+
+  return { success: true };
+}
+
+/**
+ * Confirm a password reset using the raw token received by email.
+ * Validates the token, updates the password, consumes the token, and
+ * invalidates existing sessions by updating `sessions_invalidated_at`.
+ */
+export async function confirmPasswordReset(
+  rawToken: string,
+  newPassword: string,
+): Promise<ServiceResponse<void>> {
+  if (!rawToken || !newPassword) {
+    throw new AuthError(AuthErrorCode.INVALID_CREDENTIALS, 'Token and new password are required');
+  }
+
+  const tokenHash = hashToken(rawToken);
+
+  const { data: tokenRow, error: fetchError } = await supabase
+    .from('password_reset_tokens')
+    .select('*')
+    .eq('token_hash', tokenHash)
+    .single();
+
+  if (fetchError || !tokenRow) {
+    throw new AuthError(AuthErrorCode.INVALID_TOKEN, 'Invalid or unknown reset token');
+  }
+
+  const row = tokenRow as {
+    id: string;
+    user_id: string;
+    expires_at: string;
+    consumed_at: string | null;
+  };
+
+  if (row.consumed_at) {
+    throw new AuthError(AuthErrorCode.INVALID_TOKEN, 'Reset token has already been used');
+  }
+
+  if (new Date(row.expires_at) < new Date()) {
+    throw new AuthError(AuthErrorCode.TOKEN_EXPIRED, 'Reset token has expired');
+  }
+
+  const { error: updateError } = await supabase.auth.admin.updateUserById(row.user_id, {
+    password: newPassword,
+  });
+
+  if (updateError) {
+    throw new AuthError(AuthErrorCode.INVALID_CREDENTIALS, updateError.message);
+  }
+
+  await supabase
+    .from('password_reset_tokens')
+    .update({ consumed_at: new Date().toISOString() })
+    .eq('id', row.id);
+
+  await supabase
+    .from('users')
+    .update({ sessions_invalidated_at: new Date().toISOString() })
+    .eq('id', row.user_id);
+
+  return { success: true };
 }

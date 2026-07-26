@@ -21,10 +21,14 @@ export const createBookingSchema = z
       .string({ required_error: 'check_out is required' })
       .date('check_out must be a valid ISO date (YYYY-MM-DD)'),
 
-    guests: z
-      .number({ required_error: 'guests is required', invalid_type_error: 'guests must be a number' })
-      .int('guests must be an integer')
-      .positive('guests must be a positive integer'),
+    guest_count: z
+      .number({ required_error: 'guest_count is required', invalid_type_error: 'guest_count must be a number' })
+      .int('guest_count must be an integer')
+      .positive('guest_count must be a positive integer'),
+
+    rules_acknowledged_at: z
+      .string({ required_error: 'rules_acknowledged_at is required' })
+      .datetime('rules_acknowledged_at must be a valid ISO 8601 datetime'),
 
     total_price: z
       .number({ invalid_type_error: 'total_price must be a number' })
