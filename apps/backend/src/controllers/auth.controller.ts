@@ -4,6 +4,8 @@ import {
   registerUser,
   generateWalletChallenge,
   verifyWalletChallenge,
+  requestPasswordReset,
+  confirmPasswordReset,
 } from '@/services/auth.service.js';
 import { AuthError } from '@/types/errors.js';
 
@@ -57,4 +59,16 @@ export async function walletVerify(req: Request, res: Response): Promise<void> {
     }
     throw err;
   }
+}
+
+export async function requestReset(req: Request, res: Response): Promise<void> {
+  const { email } = req.body;
+  await requestPasswordReset(email);
+  res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
+}
+
+export async function confirmReset(req: Request, res: Response): Promise<void> {
+  const { token, password } = req.body;
+  await confirmPasswordReset(token, password);
+  res.json({ message: 'Password updated successfully. Please log in with your new password.' });
 }
