@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { BookingService } from '@/services/booking.service.js';
 import { getPropertyById } from '@/services/property.service.js';
 import { generateIcs } from '@/utils/ics.js';
+import { fetchReceiptData, generateReceiptPdf } from '@/services/receipt.service.js';
 
 const bookingService = new BookingService();
 
@@ -136,4 +137,71 @@ export async function getBookingCalendar(req: Request, res: Response): Promise<v
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="booking-${booking.id}.ics"`);
   res.send(ics);
+}
+
+/**
+ * GET /api/v1/bookings/:id/receipt.pdf
+ *
+ * Generates and streams a PDF receipt for the booking.
+ * Only the booking's tenant or the property's host may download it.
+ */
+export async function getBookingReceipt(req: Request, res: Response): Promise<void> {
+  const authUser = (req as Request & { user?: { id: string } }).user;
+
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const bookingResult = await bookingService.getBookingById(req.params.id);
+  if (!bookingResult.success || !bookingResult.data) {
+    res.status(404).json({ error: 'Booking not found' });
+    return;
+  }
+
+  const booking = bookingResult.data;
+
+  // Fetch property to check host ownership
+  let hostOwnerId: string | undefined;
+  if (booking.property_id) {
+    const propResult = await getPropertyById(booking.property_id);
+    if (propResult.success && propResult.data) {
+      hostOwnerId = propResult.data.owner_id;
+    }
+  }
+
+  // Authorisation: tenant or host only
+  const isTenant = authUser.id === booking.tenant_id;
+  const isHost = !!hostOwnerId && authUser.id === hostOwnerId;
+
+  if (!isTenant && !isHost) {
+    res.status(403).json({ error: 'Forbidden: only the tenant or host may download this receipt' });
+    return;
+  }
+
+  // Only allow receipts for completed/confirmed bookings
+  const receiptableStatuses = ['Confirmed', 'Completed', 'confirmed', 'completed'];
+  if (!booking.status || !receiptableStatuses.includes(booking.status)) {
+    res.status(422).json({ error: 'Receipt is only available for confirmed or completed bookings' });
+    return;
+  }
+
+  const receiptResult = await fetchReceiptData(req.params.id);
+  if (!receiptResult.success || !receiptResult.data) {
+    res.status(500).json({ error: receiptResult.error ?? 'Failed to fetch receipt data' });
+    return;
+  }
+
+  let pdfBuffer: Buffer;
+  try {
+    pdfBuffer = generateReceiptPdf(receiptResult.data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to generate PDF receipt' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="receipt-${booking.id}.pdf"`);
+  res.setHeader('Content-Length', pdfBuffer.length);
+  res.send(pdfBuffer);
 }

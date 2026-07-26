@@ -5,7 +5,7 @@ import { useBookingDetails } from '@/hooks/useBookingDetails';
 import { useEscrowStatus } from '@/hooks/useEscrowStatus';
 import EscrowStatusCard from './EscrowStatusCard';
 import AddToCalendar from './AddToCalendar';
-import { Mail, Phone } from 'lucide-react';
+import { Mail, Phone, Download } from 'lucide-react';
 import type { Property } from '@/types/property';
 
 interface BookingConfirmationPageProps {
@@ -31,12 +31,43 @@ function usePropertyDetails(propertyId: string | undefined) {
   return property;
 }
 
+/** Trigger a browser download of the PDF receipt for a booking. */
+function useReceiptDownload() {
+  const [downloading, setDownloading] = useState(false);
+
+  async function downloadReceipt(bookingId: string) {
+    setDownloading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/v1/bookings/${bookingId}/receipt.pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? 'Download failed');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `receipt-${bookingId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return { downloadReceipt, downloading };
+}
+
 export default function BookingConfirmationPage({
   bookingId,
 }: BookingConfirmationPageProps) {
   const { booking, isLoading } = useBookingDetails(bookingId);
   const { escrow } = useEscrowStatus(bookingId);
   const property = usePropertyDetails(booking?.property_id);
+  const { downloadReceipt, downloading } = useReceiptDownload();
 
   if (isLoading) {
     return <div className="text-center py-8">Loading booking details...</div>;
@@ -102,13 +133,28 @@ export default function BookingConfirmationPage({
         {/* Add to Calendar */}
         <div className="border-t pt-4">
           <p className="text-sm text-gray-600 mb-3">Save your stay</p>
-          <AddToCalendar
-            bookingId={bookingId}
-            propertyTitle={property?.title ?? 'Rental Stay'}
-            propertyLocation={propertyLocation}
-            checkIn={booking.check_in}
-            checkOut={booking.check_out}
-          />
+          <div className="flex flex-wrap gap-3">
+            <AddToCalendar
+              bookingId={bookingId}
+              propertyTitle={property?.title ?? 'Rental Stay'}
+              propertyLocation={propertyLocation}
+              checkIn={booking.check_in}
+              checkOut={booking.check_out}
+            />
+
+            {/* Show receipt download for confirmed / completed bookings */}
+            {['confirmed', 'completed', 'Confirmed', 'Completed'].includes(booking.status) && (
+              <button
+                onClick={() => downloadReceipt(bookingId)}
+                disabled={downloading}
+                aria-label="Download PDF receipt"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-600 text-blue-600 hover:bg-blue-50 disabled:opacity-60 disabled:cursor-not-allowed text-sm font-medium transition"
+              >
+                <Download size={16} aria-hidden="true" />
+                {downloading ? 'Downloading…' : 'Download Receipt'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
