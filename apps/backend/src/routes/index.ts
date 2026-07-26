@@ -1,7 +1,9 @@
 import { supabase } from '@/config/supabase.js';
 import { type Request, type Response, Router } from 'express';
 import authRoutes from './auth.routes.js';
+import adminRoutes from './admin.routes.js';
 import bookingRoutes from './booking.routes.js';
+import clientErrorRoutes from './clientError.routes.js';
 import locationRoutes from './location.routes.js';
 import notificationRoutes from './notification.routes.js';
 import propertyRoutes from './property.routes.js';
@@ -75,6 +77,8 @@ const apiV1 = Router();
 
 // Mount all route modules under /api/v1
 apiV1.use('/auth', authRoutes);
+apiV1.use('/admin', adminRoutes);
+apiV1.use('/client-errors', clientErrorRoutes);
 apiV1.use('/bookings', bookingRoutes);
 apiV1.use('/properties', propertyRoutes);
 apiV1.use('/locations', locationRoutes);

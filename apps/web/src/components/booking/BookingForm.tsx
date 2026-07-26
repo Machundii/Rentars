@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { Calendar, Users, AlertCircle } from 'lucide-react';
+import { useTranslations } from '@/lib/i18n/useTranslations';
+import { useLocale } from '@/lib/i18n/useLocale';
+import { formatCurrency } from '@/lib/i18n/formatting';
 
 interface BookingFormProps {
   propertyId: string;
@@ -25,6 +28,8 @@ export default function BookingForm({ propertyId, onSubmit, isLoading = false }:
   const [pricing, setPricing] = useState<PricingBreakdown | null>(null);
   const [availabilityError, setAvailabilityError] = useState('');
 
+  const t = useTranslations('booking');
+  const { locale } = useLocale();
   const today = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
@@ -41,15 +46,15 @@ export default function BookingForm({ propertyId, onSubmit, isLoading = false }:
           setDateError('');
         } else {
           const error = await res.json();
-          setDateError(error.error || 'Error fetching pricing');
+          setDateError(error.error || t('cantCalculatePrice'));
         }
-      } catch (err) {
-        setDateError('Failed to fetch pricing');
+      } catch {
+        setDateError(t('cantCalculatePrice'));
       }
     };
 
     fetchPricing();
-  }, [checkIn, checkOut, propertyId]);
+  }, [checkIn, checkOut, propertyId, t]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,16 +62,15 @@ export default function BookingForm({ propertyId, onSubmit, isLoading = false }:
     setAvailabilityError('');
 
     if (!checkIn || !checkOut) {
-      setDateError('Please select valid dates');
+      setDateError(t('invalidDates'));
       return;
     }
 
     if (new Date(checkIn) >= new Date(checkOut)) {
-      setDateError('Check-out date must be after check-in date');
+      setDateError(t('checkoutAfterCheckin'));
       return;
     }
 
-    // Check availability
     try {
       const res = await fetch(
         `${API_URL}/api/v1/calendar/${propertyId}/check?checkIn=${checkIn}&checkOut=${checkOut}`,
@@ -75,24 +79,23 @@ export default function BookingForm({ propertyId, onSubmit, isLoading = false }:
       if (res.ok) {
         const data = await res.json();
         if (!data.available) {
-          setAvailabilityError(data.reason || 'Dates not available');
+          setAvailabilityError(data.reason || t('unavailableDates'));
           return;
         }
       }
-    } catch (err) {
-      setDateError('Failed to check availability');
+    } catch {
+      setDateError(t('cantCalculatePrice'));
       return;
     }
 
     if (!pricing) {
-      setDateError('Unable to calculate total price');
+      setDateError(t('cantCalculatePrice'));
       return;
     }
 
-    // Check for blocked dates in breakdown
     const hasBlocked = pricing.breakdown.some((d) => !d.is_available);
     if (hasBlocked) {
-      setDateError('Selected dates include unavailable periods');
+      setDateError(t('hasBlockedDates'));
       return;
     }
 
@@ -104,7 +107,10 @@ export default function BookingForm({ propertyId, onSubmit, isLoading = false }:
     });
   };
 
-  const nights = checkIn && checkOut ? Math.ceil((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000) : 0;
+  const nights =
+    checkIn && checkOut
+      ? Math.ceil((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000)
+      : 0;
 
   return (
     <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-md p-6 space-y-4">
@@ -112,7 +118,7 @@ export default function BookingForm({ propertyId, onSubmit, isLoading = false }:
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="check-in">
             <Calendar className="inline mr-2" size={16} aria-hidden="true" />
-            Check-in
+            {t('checkIn')}
           </label>
           <input
             id="check-in"
@@ -127,7 +133,7 @@ export default function BookingForm({ propertyId, onSubmit, isLoading = false }:
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="check-out">
             <Calendar className="inline mr-2" size={16} aria-hidden="true" />
-            Check-out
+            {t('checkOut')}
           </label>
           <input
             id="check-out"
@@ -151,7 +157,7 @@ export default function BookingForm({ propertyId, onSubmit, isLoading = false }:
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="guests">
           <Users className="inline mr-2" size={16} aria-hidden="true" />
-          Guests
+          {t('guests')}
         </label>
         <input
           id="guests"
@@ -170,14 +176,14 @@ export default function BookingForm({ propertyId, onSubmit, isLoading = false }:
               {pricing.breakdown.map((day) => (
                 <div key={day.date} className="flex justify-between text-gray-600">
                   <span>{day.date}</span>
-                  <span>{day.price.toFixed(2)} USDC</span>
+                  <span>{formatCurrency(day.price, locale)} USDC</span>
                 </div>
               ))}
             </div>
           )}
           <div className="border-t pt-2 flex justify-between font-semibold">
-            <span>Total ({nights} nights)</span>
-            <span className="text-blue-600">{pricing.total.toFixed(2)} USDC</span>
+            <span>{t('totalNights', { count: nights })}</span>
+            <span className="text-blue-600">{formatCurrency(pricing.total, locale)} USDC</span>
           </div>
         </div>
       )}
@@ -187,7 +193,7 @@ export default function BookingForm({ propertyId, onSubmit, isLoading = false }:
         disabled={isLoading || nights <= 0 || !pricing}
         className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-lg transition"
       >
-        {isLoading ? 'Processing...' : 'Book Now'}
+        {isLoading ? t('processing') : t('bookNow')}
       </button>
     </form>
   );

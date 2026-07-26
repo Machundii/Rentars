@@ -5,16 +5,17 @@ import { useRouter } from 'next/navigation';
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import BookingForm from '@/components/booking/BookingForm';
 import WalletConnectionModal from '@/components/booking/WalletConnectionModal';
+import { useTranslations } from '@/lib/i18n/useTranslations';
 import { isValidStellarAddress } from '@/lib/freighter-utils';
 
 export default function BookingPage() {
   const router = useRouter();
+  const t = useTranslations('booking');
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Check for existing wallet connection on mount
   useEffect(() => {
     const savedAddress = localStorage.getItem('walletAddress');
     if (savedAddress && isValidStellarAddress(savedAddress)) {
@@ -45,7 +46,7 @@ export default function BookingPage() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            property_id: 'property-id', // Would come from URL params
+            property_id: 'property-id',
             check_in: data.checkIn.toISOString(),
             check_out: data.checkOut.toISOString(),
             guest_count: data.guestCount,
@@ -58,11 +59,11 @@ export default function BookingPage() {
         const booking = await response.json();
         router.push(`/booking/confirmation/${booking.id}`);
       } else {
-        alert('Booking failed');
+        alert(t('failed'));
       }
     } catch (error) {
       console.error('Booking error:', error);
-      alert('Error creating booking');
+      alert(t('error'));
     } finally {
       setIsLoading(false);
     }
@@ -82,10 +83,8 @@ export default function BookingPage() {
   return (
     <main className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-2xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Complete Your Booking</h1>
-        <p className="text-gray-600 mb-8">
-          Select your dates and connect your wallet to secure your reservation.
-        </p>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">{t('title')}</h1>
+        <p className="text-gray-600 mb-8">{t('subtitle')}</p>
 
         {/* Wallet Status Card */}
         <div className="mb-6">
@@ -93,13 +92,13 @@ export default function BookingPage() {
             <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
               <CheckCircle2 size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-green-900">Wallet Connected</p>
+                <p className="text-sm font-medium text-green-900">{t('walletConnected')}</p>
                 <p className="text-xs text-green-700 mt-1 font-mono break-all">{walletAddress}</p>
                 <button
                   onClick={handleWalletDisconnect}
                   className="text-xs text-green-600 hover:text-green-700 mt-2 underline"
                 >
-                  Disconnect
+                  {t('disconnect')}
                 </button>
               </div>
             </div>
@@ -107,10 +106,8 @@ export default function BookingPage() {
             <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
               <AlertCircle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
               <div className="min-w-0">
-                <p className="text-sm font-medium text-amber-900">Wallet Not Connected</p>
-                <p className="text-xs text-amber-700 mt-1">
-                  You'll need to connect your wallet to complete booking.
-                </p>
+                <p className="text-sm font-medium text-amber-900">{t('walletNotConnected')}</p>
+                <p className="text-xs text-amber-700 mt-1">{t('walletNote')}</p>
               </div>
             </div>
           )}

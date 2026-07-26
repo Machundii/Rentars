@@ -11,10 +11,13 @@ import { useProperties } from '@/hooks/useProperties';
 import { usePropertySearch } from '@/hooks/usePropertySearch';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { useNearbyProperties, geocodeAddress } from '@/hooks/useLocationSearch';
+import { useTranslations } from '@/lib/i18n/useTranslations';
 import type { LatLngBounds } from 'leaflet';
 
 export default function SearchPage() {
   const searchParams = useSearchParams();
+  const t = useTranslations('search');
+
   const [filters, setFilters] = useState<FilterState>({
     priceMin: 0,
     priceMax: 1000,
@@ -47,7 +50,6 @@ export default function SearchPage() {
   const [nearbyParams, setNearbyParams] = useState<{ lat: number; lng: number; radius: number } | null>(null);
   const { properties: nearbyProps, isLoading: nearbyLoading } = useNearbyProperties(nearbyParams);
 
-  // When geolocation resolves, trigger nearby search
   useEffect(() => {
     if (geoPosition) {
       setNearbyParams({ lat: geoPosition.lat, lng: geoPosition.lng, radius: 10 });
@@ -63,7 +65,6 @@ export default function SearchPage() {
   const apiError = q ? searchError : error;
 
   const handleSearch = useCallback(async (query: string) => {
-    // Try geocoding the query first for location-based search
     const geo = await geocodeAddress(query);
     if (geo) {
       setNearbyParams({ lat: geo.lat, lng: geo.lng, radius: 15 });
@@ -86,8 +87,8 @@ export default function SearchPage() {
     <main className="min-h-screen bg-gray-50">
       <header className="bg-white border-b px-6 py-4">
         <div className="max-w-7xl mx-auto">
-          <h1 className="text-2xl font-bold mb-4">Search Properties</h1>
-          <SearchBar onSearch={handleSearch} />
+          <h1 className="text-2xl font-bold mb-4">{t('title')}</h1>
+          <SearchBar onSearch={handleSearch} placeholder={t('placeholder')} />
         </div>
       </header>
 
@@ -95,13 +96,14 @@ export default function SearchPage() {
         <div className="mb-6 flex justify-between items-center flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-600">
-              {isLoading ? 'Searching...' : `${properties.length} properties`}
+              {isLoading
+                ? t('searching')
+                : t('propertiesCount', { count: properties.length })}
             </span>
             <SortOptions onSortChange={setSortBy} currentSort={sortBy} />
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Near me button */}
             <button
               onClick={() => { locate(); setShowMap(true); }}
               disabled={geoLoading}
@@ -111,7 +113,7 @@ export default function SearchPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 2a7 7 0 017 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 017-7z" />
                 <circle cx="12" cy="9" r="2.5" fill="currentColor" stroke="none" />
               </svg>
-              Near me
+              {t('nearMe')}
             </button>
 
             <button
@@ -120,7 +122,7 @@ export default function SearchPage() {
                 !showMap ? 'bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-gray-50'
               }`}
             >
-              List
+              {t('list')}
             </button>
             <button
               onClick={() => setShowMap(true)}
@@ -128,7 +130,7 @@ export default function SearchPage() {
                 showMap ? 'bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-gray-50'
               }`}
             >
-              Map
+              {t('map')}
             </button>
           </div>
         </div>
@@ -150,19 +152,15 @@ export default function SearchPage() {
           </div>
 
           <div className="col-span-3">
-            {isLoading && <p className="text-gray-400">Loading properties...</p>}
+            {isLoading && <p className="text-gray-400">{t('loading')}</p>}
             {apiError && <p className="text-red-500">{apiError}</p>}
 
             {!isLoading && properties.length === 0 && (
-              <p className="text-gray-500">No properties found. Try adjusting your filters.</p>
+              <p className="text-gray-500">{t('noResults')}</p>
             )}
             {!isLoading && properties.length > 0 && (
-              <div
-                onMouseLeave={() => setActivePropertyId(undefined)}
-              >
-                <PropertyGrid
-                  properties={properties}
-                />
+              <div onMouseLeave={() => setActivePropertyId(undefined)}>
+                <PropertyGrid properties={properties} />
               </div>
             )}
           </div>
