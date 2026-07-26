@@ -1,6 +1,12 @@
 import { supabase } from '../config/supabase.js';
 import { emailService } from './email.service.js';
 import type { ServiceResponse } from './index.js';
+import { decodeCursor, buildCursorPage } from '../utils/cursor.js';
+
+export interface CursorPaginatedResult<T> {
+  data: T[];
+  nextCursor: string | null;
+}
 
 export type NotificationType =
   | 'booking_created'
@@ -71,6 +77,50 @@ export async function getNotifications(userId: string): Promise<ServiceResponse<
 
   if (error) return { success: false, error: error.message };
   return { success: true, data: (data ?? []) as Notification[] };
+}
+
+/**
+ * Cursor-based paginated notification list.
+ *
+ * Sort key: (created_at DESC, id DESC) — stable even under concurrent inserts.
+ * We fetch limit+1 rows so we can detect whether a next page exists.
+ *
+ * @param userId - The authenticated user's ID
+ * @param cursor - Opaque cursor returned from a previous call (omit for first page)
+ * @param limit  - Page size, default 20, max 100
+ */
+export async function getNotificationsCursor(
+  userId: string,
+  cursor?: string | null,
+  limit = 20,
+): Promise<ServiceResponse<CursorPaginatedResult<Notification>>> {
+  const pageSize = Math.min(Math.max(1, limit), 100);
+  const decoded = decodeCursor(cursor);
+
+  let query = supabase
+    .from('notifications')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(pageSize + 1); // +1 to detect hasMore
+
+  if (decoded) {
+    // Keyset filter: rows strictly after the cursor position
+    // (created_at < cursor.created_at) OR (created_at = cursor.created_at AND id < cursor.id)
+    query = query.or(
+      `created_at.lt.${decoded.created_at},and(created_at.eq.${decoded.created_at},id.lt.${decoded.id})`,
+    );
+  }
+
+  const { data, error } = await query;
+
+  if (error) return { success: false, error: error.message };
+
+  const rows = (data ?? []) as Notification[];
+  const page = buildCursorPage(rows, pageSize);
+
+  return { success: true, data: page };
 }
 
 export async function markAsRead(
