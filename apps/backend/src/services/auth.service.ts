@@ -12,6 +12,12 @@ import { AuthError, AuthErrorCode } from '@/types/errors.js';
 import { emailService } from './email.service.js';
 import type { ServiceResponse } from './index.js';
 
+const VERIFICATION_TOKEN_EXPIRES_MINUTES = 24 * 60; // 24 hours
+
+function hashToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface AuthUser {
@@ -71,6 +77,20 @@ export async function registerUser(
       'Registration failed: no user returned',
     );
   }
+
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + VERIFICATION_TOKEN_EXPIRES_MINUTES * 60 * 1000);
+
+  await supabase.from('users').upsert({
+    id: data.user.id,
+    email: data.user.email,
+    email_verified: false,
+    email_verification_token: tokenHash,
+    email_verification_expires_at: expiresAt.toISOString(),
+  });
+
+  await emailService.sendVerificationEmail({ to: data.user.email!, token: rawToken });
 
   const user: AuthUser = {
     id: data.user.id,
