@@ -5,9 +5,10 @@ import { Search } from 'lucide-react';
 
 interface SearchBarProps {
   onSearch: (location: string) => void;
+  placeholder?: string;
 }
 
-export default function SearchBar({ onSearch }: SearchBarProps) {
+export default function SearchBar({ onSearch, placeholder = 'Search by location...' }: SearchBarProps) {
   const [location, setLocation] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
 
@@ -36,7 +37,7 @@ export default function SearchBar({ onSearch }: SearchBarProps) {
         <Search size={20} className="text-gray-400" />
         <input
           type="text"
-          placeholder="Search by location..."
+          placeholder={placeholder}
           value={location}
           onChange={(e) => handleChange(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && onSearch(location)}

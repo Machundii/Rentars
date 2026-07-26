@@ -6,6 +6,9 @@ import PropertyImageGallery from './PropertyImageGallery';
 import PropertyMap from './PropertyMap';
 import PropertyCalendar from './PropertyCalendar';
 import PropertyReviewsSection from './PropertyReviewsSection';
+import { useTranslations } from '@/lib/i18n/useTranslations';
+import { useLocale } from '@/lib/i18n/useLocale';
+import { formatCurrency } from '@/lib/i18n/formatting';
 import type { Property } from '@/types/property';
 
 interface PropertyDetailProps {
@@ -34,6 +37,9 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [expandedDescription, setExpandedDescription] = useState(false);
 
+  const t = useTranslations('property');
+  const { locale } = useLocale();
+
   const amenities = property.amenities || [
     'WiFi',
     'Kitchen',
@@ -55,7 +61,7 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
 
     if (platform === 'copy') {
       navigator.clipboard.writeText(url);
-      alert('Link copied to clipboard!');
+      alert(t('linkCopied'));
     } else {
       window.open(shareUrls[platform], '_blank');
     }
@@ -79,6 +85,7 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
             className={`p-2 rounded-full border transition ${
               isFavorite ? 'bg-red-50 border-red-300' : 'border-gray-300'
             }`}
+            aria-label={isFavorite ? 'Remove from favourites' : 'Add to favourites'}
           >
             <Heart size={24} className={isFavorite ? 'fill-red-500 text-red-500' : 'text-gray-600'} />
           </button>
@@ -86,6 +93,7 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
             <button
               onClick={() => setShowShareMenu(!showShareMenu)}
               className="p-2 rounded-full border border-gray-300 hover:bg-gray-50"
+              aria-label="Share"
             >
               <Share2 size={24} className="text-gray-600" />
             </button>
@@ -95,19 +103,19 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
                   onClick={() => handleShare('twitter')}
                   className="block w-full text-left px-4 py-2 hover:bg-gray-50"
                 >
-                  Share on Twitter
+                  {t('shareOnTwitter')}
                 </button>
                 <button
                   onClick={() => handleShare('facebook')}
                   className="block w-full text-left px-4 py-2 hover:bg-gray-50"
                 >
-                  Share on Facebook
+                  {t('shareOnFacebook')}
                 </button>
                 <button
                   onClick={() => handleShare('copy')}
                   className="block w-full text-left px-4 py-2 hover:bg-gray-50"
                 >
-                  Copy Link
+                  {t('copyLink')}
                 </button>
               </div>
             )}
@@ -123,7 +131,7 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
 
           {/* Description */}
           <div className="bg-white p-6 rounded-lg border">
-            <h2 className="text-2xl font-bold mb-4">About this property</h2>
+            <h2 className="text-2xl font-bold mb-4">{t('about')}</h2>
             <p className="text-gray-700 leading-relaxed">
               {expandedDescription ? property.description_full || property.description : property.description}
             </p>
@@ -132,14 +140,14 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
                 onClick={() => setExpandedDescription(!expandedDescription)}
                 className="text-blue-600 hover:underline mt-2"
               >
-                {expandedDescription ? 'Show less' : 'Show more'}
+                {expandedDescription ? t('showLess') : t('showMore')}
               </button>
             )}
           </div>
 
           {/* Amenities */}
           <div className="bg-white p-6 rounded-lg border">
-            <h2 className="text-2xl font-bold mb-4">Amenities</h2>
+            <h2 className="text-2xl font-bold mb-4">{t('amenities')}</h2>
             <div className="grid grid-cols-2 gap-4">
               {amenities.map((amenity) => (
                 <div key={amenity} className="flex items-center gap-2">
@@ -211,7 +219,7 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
 
           {/* Map */}
           <div>
-            <h2 className="text-2xl font-bold mb-4">Location</h2>
+            <h2 className="text-2xl font-bold mb-4">{t('location')}</h2>
             <PropertyMap
               location={property.location}
               latitude={property.latitude}
@@ -221,13 +229,13 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
 
           {/* Calendar */}
           <div>
-            <h2 className="text-2xl font-bold mb-4">Availability</h2>
+            <h2 className="text-2xl font-bold mb-4">{t('availability')}</h2>
             <PropertyCalendar blockedDates={property.blocked_dates} />
           </div>
 
           {/* Reviews */}
           <div>
-            <h2 className="text-2xl font-bold mb-4">Reviews</h2>
+            <h2 className="text-2xl font-bold mb-4">{t('reviews')}</h2>
             <PropertyReviewsSection
               reviews={property.reviews}
               averageRating={property.average_rating}
@@ -236,7 +244,7 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
 
           {/* Host Info */}
           <div className="bg-white p-6 rounded-lg border">
-            <h2 className="text-2xl font-bold mb-4">Meet your host</h2>
+            <h2 className="text-2xl font-bold mb-4">{t('meetHost')}</h2>
             <div className="flex items-center gap-4">
               {property.host_image && (
                 <img
@@ -247,7 +255,7 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
               )}
               <div>
                 <p className="font-semibold text-lg">{property.host_name || 'Host'}</p>
-                <p className="text-gray-600">Verified host</p>
+                <p className="text-gray-600">{t('verifiedHost')}</p>
               </div>
             </div>
           </div>
@@ -258,33 +266,35 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
           <div className="bg-white p-6 rounded-lg border sticky top-8">
             <div className="mb-6">
               <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-3xl font-bold">${property.price_per_night}</span>
-                <span className="text-gray-600">per night</span>
+                <span className="text-3xl font-bold">
+                  {formatCurrency(property.price_per_night, locale)}
+                </span>
+                <span className="text-gray-600">{t('perNight')}</span>
               </div>
             </div>
 
             <button className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 mb-4">
-              Book Now
+              {t('bookNow')}
             </button>
 
             <div className="space-y-3 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-600">Cleaning fee</span>
-                <span>$50</span>
+                <span className="text-gray-600">{t('cleaningFee')}</span>
+                <span>{formatCurrency(50, locale)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600">Service fee</span>
-                <span>$25</span>
+                <span className="text-gray-600">{t('serviceFee')}</span>
+                <span>{formatCurrency(25, locale)}</span>
               </div>
               <div className="border-t pt-3 flex justify-between font-semibold">
-                <span>Total</span>
-                <span>${property.price_per_night + 75}</span>
+                <span>{t('total')}</span>
+                <span>{formatCurrency(property.price_per_night + 75, locale)}</span>
               </div>
             </div>
 
             <div className="mt-6 p-4 bg-blue-50 rounded-lg text-sm text-blue-900">
-              <p className="font-semibold mb-2">✓ Blockchain Verified</p>
-              <p>This property is registered on the Stellar blockchain for transparency and security.</p>
+              <p className="font-semibold mb-2">{t('blockchainVerified')}</p>
+              <p>{t('blockchainNote')}</p>
             </div>
           </div>
         </div>
