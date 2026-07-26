@@ -12,6 +12,11 @@ export interface ListingFormData {
   latitude?: number;
   longitude?: number;
 
+  // Capacity
+  maxGuests: number;
+  bedrooms: number;
+  bathrooms: number;
+
   // Amenities
   amenities: string[];
 
@@ -23,8 +28,23 @@ export interface ListingFormData {
   cleaningFee: number;
   serviceFee: number;
 
+  // House Rules
+  petsAllowed: boolean;
+  smokingAllowed: boolean;
+  eventsAllowed: boolean;
+  quietHoursStart: string;
+  quietHoursEnd: string;
+  additionalRules: string;
+
   // Review
   agreeToTerms: boolean;
 }
 
-export type ListingStep = 'basic' | 'location' | 'amenities' | 'photos' | 'pricing' | 'review';
+export type ListingStep =
+  | 'basic'
+  | 'location'
+  | 'amenities'
+  | 'photos'
+  | 'pricing'
+  | 'rules'
+  | 'review';

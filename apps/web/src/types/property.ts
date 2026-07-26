@@ -9,6 +9,9 @@ export interface Property {
   available: boolean;
   created_at: string;
 
+  // Capacity
+  max_guests?: number;
+
   // Map search support
   lat?: number;
   lng?: number;

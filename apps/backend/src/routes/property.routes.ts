@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   createPropertyHandler,
   deletePropertyHandler,
+  duplicatePropertyHandler,
   getProperties,
   getProperty,
   updatePropertyHandler,
@@ -49,6 +50,9 @@ router.get('/:id', getProperty);
 
 // POST /api/v1/properties  (requires email verification)
 router.post('/', authenticate, requireEmailVerified, createPropertyHandler);
+
+// POST /api/v1/properties/:id/duplicate
+router.post('/:id/duplicate', authenticate, duplicatePropertyHandler);
 
 // PUT /api/v1/properties/:id
 router.put('/:id', authenticate, updatePropertyHandler);

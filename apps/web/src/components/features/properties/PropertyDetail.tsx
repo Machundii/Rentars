@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Heart, Share2, CheckCircle } from 'lucide-react';
+import { Heart, Share2, CheckCircle, XCircle, Clock } from 'lucide-react';
 import PropertyImageGallery from './PropertyImageGallery';
 import PropertyMap from './PropertyMap';
 import PropertyCalendar from './PropertyCalendar';
@@ -19,6 +19,13 @@ interface PropertyDetailProps {
     blocked_dates?: string[];
     latitude?: number;
     longitude?: number;
+    // House rules
+    pets_allowed?: boolean;
+    smoking_allowed?: boolean;
+    events_allowed?: boolean;
+    quiet_hours_start?: string | null;
+    quiet_hours_end?: string | null;
+    additional_rules?: string | null;
   };
 }
 
@@ -142,6 +149,65 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
               ))}
             </div>
           </div>
+
+          {/* House Rules */}
+          {(property.pets_allowed !== undefined ||
+            property.smoking_allowed !== undefined ||
+            property.events_allowed !== undefined ||
+            property.quiet_hours_start ||
+            property.additional_rules) && (
+            <div className="bg-white p-6 rounded-lg border" data-testid="house-rules-section">
+              <h2 className="text-2xl font-bold mb-4">House rules</h2>
+              <ul className="space-y-3 mb-4">
+                <li className="flex items-center gap-3">
+                  {property.pets_allowed ? (
+                    <CheckCircle size={20} className="text-green-600 flex-shrink-0" aria-hidden="true" />
+                  ) : (
+                    <XCircle size={20} className="text-red-400 flex-shrink-0" aria-hidden="true" />
+                  )}
+                  <span className="text-gray-700">
+                    Pets {property.pets_allowed ? 'allowed' : 'not allowed'}
+                  </span>
+                </li>
+                <li className="flex items-center gap-3">
+                  {property.smoking_allowed ? (
+                    <CheckCircle size={20} className="text-green-600 flex-shrink-0" aria-hidden="true" />
+                  ) : (
+                    <XCircle size={20} className="text-red-400 flex-shrink-0" aria-hidden="true" />
+                  )}
+                  <span className="text-gray-700">
+                    Smoking {property.smoking_allowed ? 'allowed' : 'not allowed'}
+                  </span>
+                </li>
+                <li className="flex items-center gap-3">
+                  {property.events_allowed ? (
+                    <CheckCircle size={20} className="text-green-600 flex-shrink-0" aria-hidden="true" />
+                  ) : (
+                    <XCircle size={20} className="text-red-400 flex-shrink-0" aria-hidden="true" />
+                  )}
+                  <span className="text-gray-700">
+                    Events / parties {property.events_allowed ? 'allowed' : 'not allowed'}
+                  </span>
+                </li>
+                {property.quiet_hours_start && property.quiet_hours_end && (
+                  <li className="flex items-center gap-3">
+                    <Clock size={20} className="text-blue-500 flex-shrink-0" aria-hidden="true" />
+                    <span className="text-gray-700">
+                      Quiet hours: {property.quiet_hours_start} – {property.quiet_hours_end}
+                    </span>
+                  </li>
+                )}
+              </ul>
+              {property.additional_rules && (
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <p className="text-sm font-semibold text-gray-700 mb-1">Additional rules</p>
+                  <p className="text-sm text-gray-600 whitespace-pre-line">
+                    {property.additional_rules}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Map */}
           <div>
