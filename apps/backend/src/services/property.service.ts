@@ -36,9 +36,36 @@ export interface Property {
   amenities?: string[];
   images?: string[];
   on_chain_id?: number;
+  // House rules
+  pets_allowed?: boolean;
+  smoking_allowed?: boolean;
+  events_allowed?: boolean;
+  quiet_hours_start?: string | null;
+  quiet_hours_end?: string | null;
+  additional_rules?: string | null;
   created_at?: string;
   updated_at?: string;
 }
+
+/** Fields that are copied when duplicating a property. */
+const DUPLICATE_FIELDS = [
+  'title',
+  'description',
+  'price_per_night',
+  'city',
+  'country',
+  'address',
+  'bedrooms',
+  'bathrooms',
+  'max_guests',
+  'amenities',
+  'pets_allowed',
+  'smoking_allowed',
+  'events_allowed',
+  'quiet_hours_start',
+  'quiet_hours_end',
+  'additional_rules',
+] as const;
 
 /** Filters accepted by searchProperties. */
 export interface PropertySearchFilters {
@@ -397,4 +424,88 @@ function toTsQuery(input: string): string {
 
   if (tokens.length === 0) return '';
   return tokens.map((t) => `${t}:*`).join(' & ');
+}
+
+// ─── Duplicate ────────────────────────────────────────────────────────────────
+
+export interface DuplicatePropertyOptions {
+  /** When true the original's image URLs are copied to the draft. Defaults to false. */
+  copyImages?: boolean;
+}
+
+/**
+ * Duplicate an existing property into a new 'draft' record owned by the same host.
+ *
+ * Copied: title (+' (Copy)'), description, pricing, location, capacity, amenities,
+ *         house rules, and optionally images.
+ * NOT copied: bookings, reviews, availability ranges, on_chain_id.
+ *
+ * @param propertyId  - UUID of the source property.
+ * @param requesterId - ID of the user making the request (must be the owner).
+ * @param options     - Optional flags (copyImages).
+ */
+export async function duplicateProperty(
+  propertyId: string,
+  requesterId: string,
+  options: DuplicatePropertyOptions = {},
+): Promise<ServiceResponse<Property>> {
+  if (!propertyId) {
+    return { success: false, error: 'Property ID is required' };
+  }
+
+  // Fetch source
+  const { data: source, error: fetchError } = await supabase
+    .from('properties')
+    .select('*')
+    .eq('id', propertyId)
+    .single();
+
+  if (fetchError || !source) {
+    return { success: false, error: 'Property not found' };
+  }
+
+  const src = source as Property;
+
+  // Ownership check
+  if (src.owner_id !== requesterId) {
+    return { success: false, error: 'Forbidden: you do not own this property' };
+  }
+
+  // Build the clone payload from the allow-list
+  const clone: Partial<Property> = {};
+  for (const field of DUPLICATE_FIELDS) {
+    if (src[field] !== undefined) {
+      (clone as Record<string, unknown>)[field] = src[field];
+    }
+  }
+
+  // Mark as draft and suffix the title
+  clone.owner_id = requesterId;
+  clone.status = 'draft';
+  clone.title = `${src.title} (Copy)`;
+  // on_chain_id intentionally excluded — draft is not on-chain
+
+  if (options.copyImages && Array.isArray(src.images)) {
+    clone.images = [...src.images];
+  } else {
+    clone.images = [];
+  }
+
+  const { data: newProperty, error: insertError } = await supabase
+    .from('properties')
+    .insert(clone)
+    .select()
+    .single();
+
+  if (insertError) {
+    return { success: false, error: insertError.message };
+  }
+
+  // Bust list caches so the draft shows up for the owner
+  await Promise.all([
+    cache.del('properties:all'),
+    cache.del('properties:featured'),
+  ]);
+
+  return { success: true, data: newProperty as Property };
 }

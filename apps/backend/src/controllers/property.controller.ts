@@ -7,6 +7,7 @@ import {
   searchProperties,
   updateProperty,
   advancedSearch,
+  duplicateProperty,
   type AdvancedSearchFilters,
 } from '@/services/property.service.js';
 import { trackSearch, getSearchSuggestions, getTrendingSearches } from '@/services/searchAnalytics.service.js';
@@ -194,4 +195,36 @@ export async function setAvailability(req: AuthRequest, res: Response): Promise<
     }
     res.status(400).json({ error: message });
   }
+}
+
+// ─── Duplicate ────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/v1/properties/:id/duplicate
+ *
+ * Creates a draft copy of a host-owned property.
+ * Query param `?copyImages=true` opts in to copying image URLs.
+ * Returns 201 with the new draft property.
+ */
+export async function duplicatePropertyHandler(req: Request, res: Response): Promise<void> {
+  const requesterId = (req as Request & { user?: { id: string } }).user?.id;
+
+  if (!requesterId) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const copyImages = req.query.copyImages === 'true';
+
+  const result = await duplicateProperty(req.params.id, requesterId, { copyImages });
+
+  if (!result.success) {
+    const status = result.error?.startsWith('Forbidden') ? 403
+      : result.error === 'Property not found' ? 404
+      : 400;
+    res.status(status).json({ error: result.error });
+    return;
+  }
+
+  res.status(201).json(result.data);
 }

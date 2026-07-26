@@ -1,12 +1,34 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useBookingDetails } from '@/hooks/useBookingDetails';
 import { useEscrowStatus } from '@/hooks/useEscrowStatus';
 import EscrowStatusCard from './EscrowStatusCard';
+import AddToCalendar from './AddToCalendar';
 import { Mail, Phone } from 'lucide-react';
+import type { Property } from '@/types/property';
 
 interface BookingConfirmationPageProps {
   bookingId: string;
+}
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
+function usePropertyDetails(propertyId: string | undefined) {
+  const [property, setProperty] = useState<Property | null>(null);
+
+  useEffect(() => {
+    if (!propertyId) return;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    fetch(`${API_URL}/api/v1/properties/${propertyId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => data && setProperty(data))
+      .catch(() => {});
+  }, [propertyId]);
+
+  return property;
 }
 
 export default function BookingConfirmationPage({
@@ -14,6 +36,7 @@ export default function BookingConfirmationPage({
 }: BookingConfirmationPageProps) {
   const { booking, isLoading } = useBookingDetails(bookingId);
   const { escrow } = useEscrowStatus(bookingId);
+  const property = usePropertyDetails(booking?.property_id);
 
   if (isLoading) {
     return <div className="text-center py-8">Loading booking details...</div>;
@@ -22,6 +45,18 @@ export default function BookingConfirmationPage({
   if (!booking) {
     return <div className="text-center py-8 text-red-600">Booking not found</div>;
   }
+
+  // Build a human-readable location string from whatever the property exposes
+  const propertyLocation =
+    property
+      ? [
+          (property as Property & { address?: string; city?: string; country?: string }).address,
+          (property as Property & { city?: string }).city,
+          (property as Property & { country?: string }).country,
+        ]
+          .filter(Boolean)
+          .join(', ') || property.location
+      : '';
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -51,7 +86,7 @@ export default function BookingConfirmationPage({
           </div>
         </div>
 
-        <div className="border-t pt-4">
+        <div className="border-t pt-4 mb-4">
           <p className="text-sm text-gray-600 mb-2">Status</p>
           <span
             className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
@@ -62,6 +97,18 @@ export default function BookingConfirmationPage({
           >
             {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
           </span>
+        </div>
+
+        {/* Add to Calendar */}
+        <div className="border-t pt-4">
+          <p className="text-sm text-gray-600 mb-3">Save your stay</p>
+          <AddToCalendar
+            bookingId={bookingId}
+            propertyTitle={property?.title ?? 'Rental Stay'}
+            propertyLocation={propertyLocation}
+            checkIn={booking.check_in}
+            checkOut={booking.check_out}
+          />
         </div>
       </div>
 
@@ -77,11 +124,11 @@ export default function BookingConfirmationPage({
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Host Contact</h2>
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <Mail size={18} className="text-gray-400" />
+            <Mail size={18} className="text-gray-400" aria-hidden="true" />
             <span className="text-gray-600">host@example.com</span>
           </div>
           <div className="flex items-center gap-2">
-            <Phone size={18} className="text-gray-400" />
+            <Phone size={18} className="text-gray-400" aria-hidden="true" />
             <span className="text-gray-600">+1 (555) 000-0000</span>
           </div>
         </div>

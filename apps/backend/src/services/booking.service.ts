@@ -25,10 +25,12 @@ export interface Booking {
   tenant_id?: string;
   check_in?: string;
   check_out?: string;
+  guest_count?: number;
   total_price?: number;
   status?: string;
   escrow_id?: string;
   on_chain_id?: number;
+  rules_acknowledged_at?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -38,7 +40,9 @@ export interface CreateBookingInput {
   tenant_id: string;
   check_in: string;
   check_out: string;
+  guest_count: number;
   total_price: number;
+  rules_acknowledged_at?: string;
   on_chain_property_id?: bigint;
 }
 
@@ -130,7 +134,7 @@ export class BookingService {
    *   7. Create on-chain booking record
    */
   async createBooking(input: CreateBookingInput): Promise<ServiceResponse<Booking>> {
-    const { property_id, tenant_id, check_in, check_out, total_price } = input;
+    const { property_id, tenant_id, check_in, check_out, guest_count, total_price, rules_acknowledged_at } = input;
 
     if (!property_id || !tenant_id || !check_in || !check_out) {
       return {
@@ -141,6 +145,18 @@ export class BookingService {
 
     if (!total_price || total_price <= 0) {
       return { success: false, error: 'total_price must be a positive number' };
+    }
+
+    if (!guest_count || guest_count < 1) {
+      return { success: false, error: 'guest_count must be at least 1' };
+    }
+
+    // Require rules acknowledgement
+    if (!rules_acknowledged_at) {
+      return {
+        success: false,
+        error: 'You must acknowledge the house rules before booking',
+      };
     }
 
     const checkInDate = new Date(check_in);
@@ -157,10 +173,10 @@ export class BookingService {
       return { success: false, error: 'check_in must be before check_out' };
     }
 
-    // 1. Fetch property + owner
+    // 1. Fetch property + owner (include max_guests for capacity check)
     const { data: property, error: propertyError } = await supabase
       .from('properties')
-      .select('id, owner_id, on_chain_id')
+      .select('id, owner_id, on_chain_id, max_guests')
       .eq('id', property_id)
       .single();
 
@@ -172,7 +188,16 @@ export class BookingService {
       id: string;
       owner_id: string;
       on_chain_id?: number;
+      max_guests?: number;
     };
+
+    // Capacity check
+    if (prop.max_guests !== undefined && prop.max_guests !== null && guest_count > prop.max_guests) {
+      return {
+        success: false,
+        error: `Guest count (${guest_count}) exceeds property capacity (${prop.max_guests})`,
+      };
+    }
 
     // 2. Fetch Stellar addresses
     const [ownerStellarAddress, buyerStellarAddress] = await Promise.all([
@@ -281,9 +306,11 @@ export class BookingService {
         tenant_id,
         check_in,
         check_out,
+        guest_count,
         total_price,
         status: 'Pending',
         escrow_id: escrowId,
+        rules_acknowledged_at,
       })
       .select()
       .single();
