@@ -14,7 +14,7 @@ type BookingEmailData = {
   totalPrice: number;
 };
 
-type VerificationEmailData = {
+type PasswordResetEmailData = {
   to: string;
   token: string;
 };
@@ -74,14 +74,14 @@ export const emailService = {
     );
   },
 
-  async sendVerificationEmail(data: VerificationEmailData): Promise<void> {
-    const verifyUrl = `${process.env.FRONTEND_URL ?? 'https://rentars.app'}/verify-email?token=${data.token}`;
+  async sendPasswordResetEmail(data: PasswordResetEmailData): Promise<void> {
+    const resetUrl = `${process.env.FRONTEND_URL ?? 'https://rentars.app'}/reset-password?token=${data.token}`;
     await send(
       data.to,
-      'Verify your Rentars email address',
-      `<p>Welcome to Rentars!</p>
-       <p><a href="${verifyUrl}">Click here to verify your email address</a></p>
-       <p>This link expires in 24 hours.</p>`,
+      'Reset your Rentars password',
+      `<p>Someone requested a password reset for your Rentars account.</p>
+       <p><a href="${resetUrl}">Click here to reset your password</a></p>
+       <p>This link expires in 60 minutes. If you did not request a reset, you can ignore this email.</p>`,
     );
   },
 };
