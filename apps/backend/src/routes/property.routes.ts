@@ -10,7 +10,7 @@ import {
   searchSuggestionsHandler,
   trendingSearchesHandler,
 } from '@/controllers/property.controller.js';
-import { searchPropertiesEndpoint } from '@/controllers/propertySearch.controller.js';
+import { searchPropertiesEndpoint, searchNearbyEndpoint } from '@/controllers/propertySearch.controller.js';
 import {
   uploadImage,
   listImages,
@@ -18,14 +18,15 @@ import {
   reorderImages,
   setAsPrimary,
 } from '@/controllers/propertyImage.controller.js';
-import { searchPropertiesEndpoint } from '@/controllers/propertySearch.controller.js';
 import {
   getAvailability,
   addAvailabilityBlock,
   removeAvailabilityBlock,
 } from '@/controllers/availability.controller.js';
 import { authenticate } from '@/middleware/auth.middleware.js';
+import { requireEmailVerified } from '@/middleware/emailVerified.middleware.js';
 import { upload } from '@/middleware/multer.js';
+import { geoSearchSchema, validateQuery } from '@/validators/property.validator.js';
 
 const router = Router();
 
@@ -34,6 +35,9 @@ router.get('/', getProperties);
 
 // GET /api/v1/properties/search/advanced - Advanced search with filters
 router.get('/search/advanced', advancedSearchHandler);
+
+// GET /api/v1/properties/search/nearby - Radius geospatial search ordered by distance
+router.get('/search/nearby', validateQuery(geoSearchSchema), searchNearbyEndpoint);
 
 // GET /api/v1/properties/search/suggestions - Search suggestions
 router.get('/search/suggestions', searchSuggestionsHandler);
@@ -44,8 +48,8 @@ router.get('/search/trending', trendingSearchesHandler);
 // GET /api/v1/properties/:id
 router.get('/:id', getProperty);
 
-// POST /api/v1/properties
-router.post('/', authenticate, createPropertyHandler);
+// POST /api/v1/properties  (requires email verification)
+router.post('/', authenticate, requireEmailVerified, createPropertyHandler);
 
 // POST /api/v1/properties/:id/duplicate
 router.post('/:id/duplicate', authenticate, duplicatePropertyHandler);
