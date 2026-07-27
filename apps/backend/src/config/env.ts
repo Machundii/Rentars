@@ -62,26 +62,9 @@ const envSchema = z.object({
 
   // ── Geocoding ─────────────────────────────────────────────────────────────
   GEOCODING_API_KEY: z.string().optional(),
-
-  // ── SMTP (email) — all optional; email service falls back to no-op ────────
-  SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z
-    .string()
-    .default('587')
-    .transform(Number),
-  SMTP_SECURE: z
-    .string()
-    .default('false')
-    .transform((v) => v === 'true'),
-  SMTP_USER: z.string().optional(),
-  SMTP_PASS: z.string().optional(),
-  EMAIL_FROM: z.string().default('Rentars <no-reply@rentars.app>'),
-
-  // ── Frontend URL (used in password-reset emails) ───────────────────────────
-  FRONTEND_URL: z.string().url().default('https://rentars.app'),
-
-  // ── Metrics ───────────────────────────────────────────────────────────────
-  METRICS_TOKEN: z.string().optional(),
+  // hCaptcha bot protection (set HCAPTCHA_ENABLED=false to bypass in dev)
+  HCAPTCHA_SECRET_KEY: z.string().optional(),
+  HCAPTCHA_ENABLED: z.string().optional(),
 });
 
 // ── Type export ───────────────────────────────────────────────────────────────

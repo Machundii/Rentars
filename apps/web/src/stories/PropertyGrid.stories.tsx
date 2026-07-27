@@ -33,3 +33,25 @@ export const WithProperties: Story = {
 };
 
 export const Empty: Story = { args: { properties: [] } };
+
+export const Loading: Story = {
+  args: {
+    properties: [],
+    loading: true,
+  },
+};
+
+export const Error: Story = {
+  args: {
+    properties: [],
+    error: 'Failed to load properties. Please try again.',
+    onRetry: () => console.log('Retry clicked'),
+  },
+};
+
+export const ErrorNoRetry: Story = {
+  args: {
+    properties: [],
+    error: 'Failed to load properties.',
+  },
+};

@@ -11,6 +11,8 @@ import {
   deleteSeasonalPricing as svcDeleteSeasonalPricing,
   createSpecialEvent as svcCreateSpecialEvent,
   deleteSpecialEvent as svcDeleteSpecialEvent,
+  previewPricing,
+  getPropertyQuote,
 } from '@/services/pricing.service.js';
 
 export async function getCalendarMonth(req: Request, res: Response): Promise<void> {
@@ -195,4 +197,38 @@ export async function deleteEvent(req: Request, res: Response): Promise<void> {
   }
 
   res.status(204).send();
+}
+
+export async function previewPropertyPricing(req: Request, res: Response): Promise<void> {
+  const { id: propertyId } = req.params;
+  const { start, end } = req.query;
+
+  if (!start || !end) {
+    res.status(400).json({ error: 'start and end query params are required' });
+    return;
+  }
+
+  const result = await previewPricing(propertyId, start as string, end as string);
+  if (!result.success) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.json(result.data);
+}
+
+export async function getPropertyQuoteHandler(req: Request, res: Response): Promise<void> {
+  const { id: propertyId } = req.params;
+  const { start, end } = req.query;
+
+  if (!start || !end) {
+    res.status(400).json({ error: 'start and end query params are required' });
+    return;
+  }
+
+  const result = await getPropertyQuote(propertyId, start as string, end as string);
+  if (!result.success) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.json(result.data);
 }

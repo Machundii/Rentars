@@ -117,12 +117,20 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
   }
 
   return (
-    <div className="bg-card rounded-lg border border-border p-6 space-y-6 h-fit sticky top-8">
-
-      {/* Sort ---------------------------------------------------------------- */}
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6 space-y-6 h-fit sticky top-8">
+      {/* Sort */}
       <div>
-        <SectionHeader section="sort" label="Sort By" />
-        <Panel section="sort">
+        <button
+          onClick={() => toggleSection('sort')}
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
+        >
+          Sort By
+          <ChevronDown
+            size={20}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.sort ? 'rotate-180' : ''}`}
+          />
+        </button>
+        {expandedSections.sort && (
           <div className="space-y-2">
             {SORT_OPTIONS.map((option) => (
               <label key={option.value} className="flex items-center gap-2 cursor-pointer">
@@ -134,7 +142,7 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
                   onChange={() => update({ sortBy: option.value as FilterState['sortBy'] })}
                   className="rounded-full focus:ring-2 focus:ring-ring focus:ring-offset-1"
                 />
-                <span className="text-sm">{option.label}</span>
+                <span className="text-sm text-gray-700 dark:text-gray-300">{option.label}</span>
               </label>
             ))}
           </div>
@@ -143,16 +151,20 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
 
       {/* Price Range --------------------------------------------------------- */}
       <div>
-        <SectionHeader section="price" label="Price Range" />
-        <Panel section="price">
+        <button
+          onClick={() => toggleSection('price')}
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
+        >
+          Price Range
+          <ChevronDown
+            size={20}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.price ? 'rotate-180' : ''}`}
+          />
+        </button>
+        {expandedSections.price && (
           <div className="space-y-4">
             <div>
-              <label
-                htmlFor={`${id}-price-min`}
-                className="text-sm text-muted-foreground"
-              >
-                Min: ${filters.priceMin}
-              </label>
+              <label className="text-sm text-gray-600 dark:text-gray-400">Min: ${filters.priceMin}</label>
               <input
                 id={`${id}-price-min`}
                 type="range"
@@ -168,12 +180,7 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
               />
             </div>
             <div>
-              <label
-                htmlFor={`${id}-price-max`}
-                className="text-sm text-muted-foreground"
-              >
-                Max: ${filters.priceMax}
-              </label>
+              <label className="text-sm text-gray-600 dark:text-gray-400">Max: ${filters.priceMax}</label>
               <input
                 id={`${id}-price-max`}
                 type="range"
@@ -194,36 +201,48 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
 
       {/* Bedrooms ------------------------------------------------------------ */}
       <div>
-        <SectionHeader section="bedrooms" label="Bedrooms" />
-        <Panel section="bedrooms">
-          <div role="group" aria-label="Number of bedrooms" className="flex gap-2 flex-wrap">
-            {[1, 2, 3, 4, 5].map((num) => {
-              const selected = filters.bedrooms === num;
-              return (
-                <button
-                  key={num}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => update({ bedrooms: selected ? undefined : num })}
-                  className={`px-3 py-2 rounded border transition text-sm
-                    focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
-                    ${selected
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'border-border hover:border-foreground/40'
-                    }`}
-                >
-                  {num}
-                </button>
-              );
-            })}
+        <button
+          onClick={() => toggleSection('bedrooms')}
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
+        >
+          Bedrooms
+          <ChevronDown
+            size={20}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.bedrooms ? 'rotate-180' : ''}`}
+          />
+        </button>
+        {expandedSections.bedrooms && (
+          <div className="flex gap-2 flex-wrap">
+            {[1, 2, 3, 4, 5].map((num) => (
+              <button
+                key={num}
+                onClick={() => handleBedroomsChange(filters.bedrooms === num ? undefined : num)}
+                className={`px-3 py-2 rounded border transition text-sm ${
+                  filters.bedrooms === num
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500'
+                }`}
+              >
+                {num}
+              </button>
+            ))}
           </div>
         </Panel>
       </div>
 
       {/* Amenities ----------------------------------------------------------- */}
       <div>
-        <SectionHeader section="amenities" label="Amenities" />
-        <Panel section="amenities">
+        <button
+          onClick={() => toggleSection('amenities')}
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
+        >
+          Amenities
+          <ChevronDown
+            size={20}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.amenities ? 'rotate-180' : ''}`}
+          />
+        </button>
+        {expandedSections.amenities && (
           <div className="space-y-2">
             {AMENITIES.map((amenity) => (
               <label key={amenity} className="flex items-center gap-2 cursor-pointer">
@@ -238,7 +257,7 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
                   }}
                   className="rounded focus:ring-2 focus:ring-ring focus:ring-offset-1"
                 />
-                <span className="text-sm">{amenity}</span>
+                <span className="text-sm text-gray-700 dark:text-gray-300">{amenity}</span>
               </label>
             ))}
           </div>
@@ -247,36 +266,48 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
 
       {/* Guests -------------------------------------------------------------- */}
       <div>
-        <SectionHeader section="guests" label="Guests" />
-        <Panel section="guests">
-          <div role="group" aria-label="Number of guests" className="flex gap-2 flex-wrap">
-            {[1, 2, 4, 6, 8].map((num) => {
-              const selected = filters.guests === num;
-              return (
-                <button
-                  key={num}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => update({ guests: num })}
-                  className={`px-3 py-2 rounded border transition text-sm
-                    focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
-                    ${selected
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'border-border hover:border-foreground/40'
-                    }`}
-                >
-                  {num}
-                </button>
-              );
-            })}
+        <button
+          onClick={() => toggleSection('guests')}
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
+        >
+          Guests
+          <ChevronDown
+            size={20}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.guests ? 'rotate-180' : ''}`}
+          />
+        </button>
+        {expandedSections.guests && (
+          <div className="flex gap-2 flex-wrap">
+            {[1, 2, 4, 6, 8].map((num) => (
+              <button
+                key={num}
+                onClick={() => handleGuestsChange(num)}
+                className={`px-3 py-2 rounded border transition text-sm ${
+                  filters.guests === num
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500'
+                }`}
+              >
+                {num}
+              </button>
+            ))}
           </div>
         </Panel>
       </div>
 
       {/* Property Type ------------------------------------------------------- */}
       <div>
-        <SectionHeader section="type" label="Property Type" />
-        <Panel section="type">
+        <button
+          onClick={() => toggleSection('type')}
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
+        >
+          Property Type
+          <ChevronDown
+            size={20}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.type ? 'rotate-180' : ''}`}
+          />
+        </button>
+        {expandedSections.type && (
           <div className="space-y-2">
             {PROPERTY_TYPES.map((type) => (
               <label key={type} className="flex items-center gap-2 cursor-pointer">
@@ -288,7 +319,7 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
                   onChange={() => update({ propertyType: type })}
                   className="rounded-full focus:ring-2 focus:ring-ring focus:ring-offset-1"
                 />
-                <span className="text-sm">{type}</span>
+                <span className="text-sm text-gray-700 dark:text-gray-300">{type}</span>
               </label>
             ))}
           </div>
@@ -297,35 +328,36 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
 
       {/* Dates --------------------------------------------------------------- */}
       <div>
-        <SectionHeader section="dates" label="Dates" />
-        <Panel section="dates">
+        <button
+          onClick={() => toggleSection('dates')}
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
+        >
+          Dates
+          <ChevronDown
+            size={20}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.dates ? 'rotate-180' : ''}`}
+          />
+        </button>
+        {expandedSections.dates && (
           <div className="space-y-3">
             <div>
-              <label htmlFor={`${id}-check-in`} className="text-sm text-muted-foreground block mb-1">
-                Check In
-              </label>
+              <label className="text-sm text-gray-600 dark:text-gray-400">Check In</label>
               <input
                 id={`${id}-check-in`}
                 type="date"
                 value={filters.checkIn || ''}
-                onChange={(e) => update({ checkIn: e.target.value })}
-                className="w-full border border-border rounded px-2 py-1 text-sm
-                  focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
-                  bg-background text-foreground"
+                onChange={(e) => handleDateChange('checkIn', e.target.value)}
+                className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               />
             </div>
             <div>
-              <label htmlFor={`${id}-check-out`} className="text-sm text-muted-foreground block mb-1">
-                Check Out
-              </label>
+              <label className="text-sm text-gray-600 dark:text-gray-400">Check Out</label>
               <input
                 id={`${id}-check-out`}
                 type="date"
                 value={filters.checkOut || ''}
-                onChange={(e) => update({ checkOut: e.target.value })}
-                className="w-full border border-border rounded px-2 py-1 text-sm
-                  focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
-                  bg-background text-foreground"
+                onChange={(e) => handleDateChange('checkOut', e.target.value)}
+                className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               />
             </div>
           </div>

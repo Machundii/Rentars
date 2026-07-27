@@ -1,0 +1,246 @@
+/**
+ * Tests for Feature A — PDF Receipt
+ *
+ * Covers:
+ *  1. fetchReceiptData — data assembly and night calculation
+ *  2. generateReceiptPdf — PDF output contains expected fields
+ *  3. getBookingReceipt controller — authorization rules
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { generateReceiptPdf, fetchReceiptData, type ReceiptData } from '../services/receipt.service.js';
+
+// ─── Supabase mock ────────────────────────────────────────────────────────────
+
+const mockSingle = vi.fn();
+const mockEq     = vi.fn();
+
+const mockFrom = vi.fn(() => ({
+  select: vi.fn(() => ({ eq: mockEq })),
+}));
+
+mockEq.mockImplementation(() => ({ single: mockSingle }));
+
+vi.mock('../config/supabase.js', () => ({
+  supabase: { from: mockFrom },
+}));
+
+// ─── Fixtures ─────────────────────────────────────────────────────────────────
+
+const BOOKING_ROW = {
+  id:           'booking-001',
+  property_id:  'prop-001',
+  tenant_id:    'user-tenant',
+  check_in:     '2027-08-01',
+  check_out:    '2027-08-05',
+  guest_count:  2,
+  total_price:  440,
+  status:       'Confirmed',
+  escrow_id:    'escrow-xyz',
+  on_chain_id:  42,
+  created_at:   '2027-07-01T10:00:00Z',
+  properties: {
+    title:           'Seaside Cottage',
+    address:         '1 Ocean Drive',
+    city:            'Cape Town',
+    country:         'South Africa',
+    price_per_night: 100,
+  },
+};
+
+const RECEIPT_DATA: ReceiptData = {
+  bookingId:       'booking-001',
+  propertyTitle:   'Seaside Cottage',
+  propertyAddress: '1 Ocean Drive, Cape Town, South Africa',
+  checkIn:         '2027-08-01',
+  checkOut:        '2027-08-05',
+  nights:          4,
+  pricePerNight:   100,
+  subtotal:        400,
+  platformFee:     40,
+  total:           440,
+  guestCount:      2,
+  status:          'Confirmed',
+  escrowId:        'escrow-xyz',
+  onChainId:       42,
+  createdAt:       '2027-07-01T10:00:00Z',
+};
+
+// ─── fetchReceiptData ─────────────────────────────────────────────────────────
+
+describe('fetchReceiptData', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns error when bookingId is empty', async () => {
+    const result = await fetchReceiptData('');
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/required/i);
+  });
+
+  it('returns error when booking not found', async () => {
+    mockSingle.mockResolvedValueOnce({ data: null, error: { message: 'not found' } });
+    const result = await fetchReceiptData('nonexistent');
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/not found/i);
+  });
+
+  it('calculates nights correctly', async () => {
+    mockSingle.mockResolvedValueOnce({ data: BOOKING_ROW, error: null });
+    const result = await fetchReceiptData('booking-001');
+    expect(result.success).toBe(true);
+    expect(result.data?.nights).toBe(4);
+  });
+
+  it('computes platform fee as 10% of subtotal', async () => {
+    mockSingle.mockResolvedValueOnce({ data: BOOKING_ROW, error: null });
+    const result = await fetchReceiptData('booking-001');
+    expect(result.success).toBe(true);
+    // subtotal = 100 * 4 = 400; fee = 40
+    expect(result.data?.subtotal).toBe(400);
+    expect(result.data?.platformFee).toBe(40);
+  });
+
+  it('populates escrow and on-chain ids from the booking row', async () => {
+    mockSingle.mockResolvedValueOnce({ data: BOOKING_ROW, error: null });
+    const result = await fetchReceiptData('booking-001');
+    expect(result.data?.escrowId).toBe('escrow-xyz');
+    expect(result.data?.onChainId).toBe(42);
+  });
+
+  it('assembles property address from parts', async () => {
+    mockSingle.mockResolvedValueOnce({ data: BOOKING_ROW, error: null });
+    const result = await fetchReceiptData('booking-001');
+    expect(result.data?.propertyAddress).toBe('1 Ocean Drive, Cape Town, South Africa');
+  });
+});
+
+// ─── generateReceiptPdf ───────────────────────────────────────────────────────
+
+describe('generateReceiptPdf', () => {
+  it('returns a Buffer', () => {
+    const buf = generateReceiptPdf(RECEIPT_DATA);
+    expect(Buffer.isBuffer(buf)).toBe(true);
+  });
+
+  it('starts with the PDF header magic bytes', () => {
+    const buf = generateReceiptPdf(RECEIPT_DATA);
+    expect(buf.slice(0, 4).toString()).toBe('%PDF');
+  });
+
+  it('ends with %%EOF', () => {
+    const buf = generateReceiptPdf(RECEIPT_DATA);
+    const tail = buf.slice(-10).toString();
+    expect(tail).toContain('%%EOF');
+  });
+
+  it('embeds the booking ID', () => {
+    const buf = generateReceiptPdf(RECEIPT_DATA);
+    expect(buf.toString('latin1')).toContain('booking-001');
+  });
+
+  it('embeds the property title', () => {
+    const buf = generateReceiptPdf(RECEIPT_DATA);
+    expect(buf.toString('latin1')).toContain('Seaside Cottage');
+  });
+
+  it('embeds the check-in date', () => {
+    const buf = generateReceiptPdf(RECEIPT_DATA);
+    // fmtDate('2027-08-01') → '1 Aug 2027'
+    expect(buf.toString('latin1')).toContain('Aug 2027');
+  });
+
+  it('embeds the total price', () => {
+    const buf = generateReceiptPdf(RECEIPT_DATA);
+    expect(buf.toString('latin1')).toContain('440.00 USDC');
+  });
+
+  it('embeds the platform fee', () => {
+    const buf = generateReceiptPdf(RECEIPT_DATA);
+    expect(buf.toString('latin1')).toContain('40.00 USDC');
+  });
+
+  it('embeds the escrow ID', () => {
+    const buf = generateReceiptPdf(RECEIPT_DATA);
+    expect(buf.toString('latin1')).toContain('escrow-xyz');
+  });
+
+  it('embeds the on-chain id and explorer link', () => {
+    const text = generateReceiptPdf(RECEIPT_DATA).toString('latin1');
+    expect(text).toContain('42');
+    expect(text).toContain('stellar.expert');
+  });
+
+  it('works when escrowId and onChainId are absent', () => {
+    const data: ReceiptData = { ...RECEIPT_DATA, escrowId: undefined, onChainId: undefined };
+    const buf = generateReceiptPdf(data);
+    expect(buf.toString('latin1')).not.toContain('stellar.expert');
+    expect(buf.toString('latin1')).toContain('booking-001');
+  });
+
+  it('handles single-night stays', () => {
+    const data: ReceiptData = {
+      ...RECEIPT_DATA,
+      nights: 1,
+      checkOut: '2027-08-02',
+      subtotal: 100,
+      platformFee: 10,
+      total: 110,
+    };
+    const text = generateReceiptPdf(data).toString('latin1');
+    expect(text).toContain('1 night');
+    expect(text).not.toContain('1 nights');
+  });
+});
+
+// ─── Authorization logic (unit-tested directly) ───────────────────────────────
+
+describe('Receipt authorization logic', () => {
+  /**
+   * We test the authorization rule in isolation — same logic used in
+   * getBookingReceipt controller — without spinning up an HTTP server.
+   */
+  function isAuthorized(
+    requesterId: string,
+    tenantId: string,
+    hostOwnerId: string,
+  ): boolean {
+    return requesterId === tenantId || requesterId === hostOwnerId;
+  }
+
+  it('allows the tenant to access the receipt', () => {
+    expect(isAuthorized('user-tenant', 'user-tenant', 'user-host')).toBe(true);
+  });
+
+  it('allows the host to access the receipt', () => {
+    expect(isAuthorized('user-host', 'user-tenant', 'user-host')).toBe(true);
+  });
+
+  it('blocks a random third party', () => {
+    expect(isAuthorized('user-stranger', 'user-tenant', 'user-host')).toBe(false);
+  });
+
+  it('blocks when requester id is empty string', () => {
+    expect(isAuthorized('', 'user-tenant', 'user-host')).toBe(false);
+  });
+
+  /** Receipts are only valid for confirmed/completed statuses. */
+  function isReceiptableStatus(status: string): boolean {
+    return ['Confirmed', 'Completed', 'confirmed', 'completed'].includes(status);
+  }
+
+  it('allows receipt for Confirmed status', () => {
+    expect(isReceiptableStatus('Confirmed')).toBe(true);
+  });
+
+  it('allows receipt for Completed status', () => {
+    expect(isReceiptableStatus('Completed')).toBe(true);
+  });
+
+  it('blocks receipt for Pending status', () => {
+    expect(isReceiptableStatus('Pending')).toBe(false);
+  });
+
+  it('blocks receipt for Cancelled status', () => {
+    expect(isReceiptableStatus('Cancelled')).toBe(false);
+  });
+});

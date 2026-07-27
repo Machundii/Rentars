@@ -6,16 +6,32 @@ This directory contains test suites for the Rentars backend API.
 
 ### Unit Tests (`unit/`)
 
-Unit tests for individual services and functions.
+Unit tests for individual services and functions. Uses `bun:test` with mocked Supabase/blockchain clients — no running server required.
 
 **Running unit tests:**
 ```bash
 cd apps/backend
-bun test
+bun run test:unit
 ```
 
-**Test files:**
-- `sync-service.test.ts` - Tests for blockchain sync service
+Includes tests for: booking service, property service, auth service, wishlist, notifications, reviews, sync, availability, calendar, ICS generation, rate limiter, validators, and **migration filename validation** (`validate-migrations.test.ts`).
+
+### RLS Policy Tests (`rls/`)
+
+Integration tests that connect to a **live local Supabase stack** as different authenticated users and assert cross-user data access is blocked by Row Level Security policies.
+
+Tables covered: `profiles`, `bookings`, `wishlists`, `notifications`, `properties`, `property_images`.
+
+**Prerequisites:**
+- Local Supabase stack running: `supabase start`
+- Env vars in `.env.test`: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+
+**Running RLS tests:**
+```bash
+supabase start
+cd apps/backend
+bun run test:rls
+```
 
 ### API Tests (`api/`)
 

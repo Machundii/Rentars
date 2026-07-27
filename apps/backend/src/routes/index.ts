@@ -8,6 +8,7 @@ import locationRoutes from './location.routes.js';
 import notificationRoutes from './notification.routes.js';
 import propertyRoutes from './property.routes.js';
 import reviewRoutes from './review.routes.js';
+import pushRoutes from './push.routes.js';
 
 const router = Router();
 
@@ -84,6 +85,7 @@ apiV1.use('/properties', propertyRoutes);
 apiV1.use('/locations', locationRoutes);
 apiV1.use('/reviews', reviewRoutes);
 apiV1.use('/notifications', notificationRoutes);
+apiV1.use('/push', pushRoutes);
 
 router.use('/api/v1', apiV1);
 
