@@ -16,6 +16,7 @@ export type NotificationType =
   | 'payment_received'
   | 'booking_reminder'
   | 'review_requested'
+  | 'new_property'
   | 'system_alert';
 
 export interface Notification {
@@ -50,6 +51,7 @@ const EMAIL_TEMPLATES: Partial<Record<NotificationType, string>> = {
   payment_received: 'Payment Received',
   booking_reminder: 'Booking Reminder',
   review_requested: 'Review Requested',
+  new_property: 'New Listing from a Host You Follow',
   system_alert: 'System Alert',
 };
 
@@ -322,3 +324,78 @@ export async function createNotificationWithAllChannels(
 }
 
 export { EMAIL_TEMPLATES };
+
+// ─── Host-follow new-listing fan-out ──────────────────────────────────────────
+
+export interface NewPropertyNotificationData {
+  /** UUID of the newly published property. */
+  propertyId: string;
+  /** Human-readable title for the notification body. */
+  propertyTitle: string;
+  /** URL slug — used to build the deep-link in the notification. */
+  propertySlug: string;
+  /** UUID of the host who published the property. */
+  hostId: string;
+  /** Display name of the host (shown in notification body). */
+  hostName: string;
+}
+
+/**
+ * Fan-out a `new_property` notification to every follower of `hostId`.
+ *
+ * Each follower's notification preferences are respected:
+ *  - If the follower has disabled `new_property` notifications (or all
+ *    in-app notifications) the in-app row is skipped.
+ *  - Email fan-out is intentionally NOT performed here to avoid large
+ *    synchronous email bursts; wire a background job / queue if needed.
+ *
+ * Failures for individual followers are logged but do not abort the
+ * overall fan-out so one bad row never blocks the rest.
+ *
+ * @param data  - Property and host metadata for the notification payload.
+ * @returns     - Count of notifications successfully created.
+ */
+export async function notifyHostFollowers(
+  data: NewPropertyNotificationData,
+): Promise<ServiceResponse<{ notified: number }>> {
+  const { getHostFollowerIds } = await import('./follow.service.js');
+
+  const followersResult = await getHostFollowerIds(data.hostId);
+  if (!followersResult.success) {
+    return { success: false, error: followersResult.error };
+  }
+
+  const followerIds = followersResult.data ?? [];
+  if (followerIds.length === 0) {
+    return { success: true, data: { notified: 0 } };
+  }
+
+  const payload: Record<string, unknown> = {
+    propertyId:    data.propertyId,
+    propertyTitle: data.propertyTitle,
+    propertySlug:  data.propertySlug,
+    hostId:        data.hostId,
+    hostName:      data.hostName,
+  };
+
+  let notified = 0;
+
+  for (const followerId of followerIds) {
+    try {
+      // Respect per-user in-app notification preferences
+      const send = await shouldSendInApp(followerId, 'new_property');
+      if (!send) continue;
+
+      const result = await createNotification(followerId, 'new_property', payload);
+      if (result.success) notified++;
+    } catch (err) {
+      // Log and continue — one follower's failure must not abort the fan-out
+      console.error(
+        `[notifyHostFollowers] Failed to notify follower ${followerId}:`,
+        err,
+      );
+    }
+  }
+
+  return { success: true, data: { notified } };
+}

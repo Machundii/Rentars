@@ -1,6 +1,10 @@
 import { Router } from 'express';
 import { requireAdmin } from '@/middleware/admin.middleware.js';
-import { getRateLimitSummary } from '@/controllers/admin.controller.js';
+import {
+  getRateLimitSummary,
+  setFeaturedHandler,
+  clearFeaturedHandler,
+} from '@/controllers/admin.controller.js';
 
 const router = Router();
 
@@ -8,6 +12,89 @@ const router = Router();
  * All routes in this file require an admin JWT.
  */
 router.use(requireAdmin);
+
+// ── Featured listings ─────────────────────────────────────────────────────────
+
+/**
+ * @openapi
+ * /api/v1/admin/properties/{id}/featured:
+ *   put:
+ *     tags: [Admin]
+ *     summary: Mark a property as featured
+ *     description: |
+ *       Sets the featured window for a property.  The property will appear
+ *       prominently in search results and on the homepage until featured_until
+ *       passes.  At most FEATURED_CAP (6) listings surface at any time.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *         description: Property UUID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [featured_until]
+ *             properties:
+ *               featured_until:
+ *                 type: string
+ *                 format: date-time
+ *                 description: ISO 8601 datetime until which the property is featured (must be future)
+ *               weight:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 100
+ *                 default: 0
+ *                 description: Ordering tiebreaker — higher value appears first
+ *     responses:
+ *       200:
+ *         description: Property updated with new featured window
+ *       400:
+ *         description: Missing or invalid fields
+ *       422:
+ *         description: featured_until is not a future date
+ *       401:
+ *         description: Missing or invalid token
+ *       403:
+ *         description: Not an admin
+ */
+router.put('/properties/:id/featured', setFeaturedHandler);
+
+/**
+ * @openapi
+ * /api/v1/admin/properties/{id}/featured:
+ *   delete:
+ *     tags: [Admin]
+ *     summary: Remove featured status from a property
+ *     description: |
+ *       Immediately clears featured_until and featured_weight.
+ *       The property will no longer appear in featured listings.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *         description: Property UUID
+ *     responses:
+ *       200:
+ *         description: Featured status removed
+ *       400:
+ *         description: Invalid property ID
+ *       401:
+ *         description: Missing or invalid token
+ *       403:
+ *         description: Not an admin
+ */
+router.delete('/properties/:id/featured', clearFeaturedHandler);
+
+// ── Rate-limit summary ────────────────────────────────────────────────────────
 
 /**
  * @openapi

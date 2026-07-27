@@ -1,15 +1,18 @@
 import type { Request, Response } from 'express';
-import type { Request, Response } from 'express';
 import {
   createProperty,
   deleteProperty,
   getAllProperties,
   getPropertyById,
+  getPropertyBySlug,
   searchProperties,
   updateProperty,
   advancedSearch,
   duplicateProperty,
   getFeaturedProperties,
+  setFeatured,
+  clearFeatured,
+  FEATURED_CAP,
   type AdvancedSearchFilters,
   type Property,
 } from '@/services/property.service.js';
@@ -119,7 +122,7 @@ export async function getProperties(req: Request, res: Response): Promise<void> 
 // ─── Featured ─────────────────────────────────────────────────────────────────
 
 export async function getFeatured(_req: Request, res: Response): Promise<void> {
-  const result = await getFeaturedProperties();
+  const result = await getFeaturedProperties(FEATURED_CAP);
   if (!result.success) {
     res.status(500).json({ error: result.error });
     return;
@@ -133,6 +136,35 @@ export async function getProperty(req: Request, res: Response): Promise<void> {
   const viewerUserId = (req as AuthRequest).userId;
 
   const result = await getPropertyById(req.params.id);
+  if (!result.success) {
+    res.status(404).json({ error: result.error });
+    return;
+  }
+
+  const masked = await applyLocationPrivacy(result.data, viewerUserId);
+  res.json(masked);
+}
+
+/**
+ * GET /api/v1/properties/by-slug/:slug
+ *
+ * Look up a property by its human-readable URL slug.
+ * Returns the full property object (with location privacy applied).
+ *
+ * The frontend uses this endpoint to resolve slug-based URLs to a property,
+ * and the response includes the canonical slug so the client can redirect
+ * if the URL slug is stale.
+ */
+export async function getPropertyBySlugHandler(req: Request, res: Response): Promise<void> {
+  const viewerUserId = (req as AuthRequest).userId;
+  const { slug } = req.params;
+
+  if (!slug) {
+    res.status(400).json({ error: 'Slug is required' });
+    return;
+  }
+
+  const result = await getPropertyBySlug(slug);
   if (!result.success) {
     res.status(404).json({ error: result.error });
     return;
