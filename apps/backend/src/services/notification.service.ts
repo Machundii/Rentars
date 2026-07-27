@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabase.js';
 import { emailService } from './email.service.js';
+import { buildPreferenceUrlForUser } from './preferenceToken.js';
 import type { ServiceResponse } from './index.js';
 import { decodeCursor, buildCursorPage } from '../utils/cursor.js';
 
@@ -219,6 +220,10 @@ export async function createNotificationWithEmail(
 
   const sendEmail = await shouldSendEmail(userId, type);
   if (sendEmail && data.userEmail) {
+    // Generate a per-recipient preference management URL so recipients can
+    // manage or unsubscribe directly from the email footer.
+    const preferencesUrl = buildPreferenceUrlForUser(userId);
+
     const emailData = {
       to: String(data.userEmail),
       userName: String(data.userName ?? ''),
@@ -226,6 +231,7 @@ export async function createNotificationWithEmail(
       checkIn: String(data.checkIn ?? ''),
       checkOut: String(data.checkOut ?? ''),
       totalPrice: Number(data.totalPrice ?? 0),
+      preferencesUrl,
     };
 
     const emailPromise =
