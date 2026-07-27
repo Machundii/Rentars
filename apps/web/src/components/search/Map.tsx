@@ -17,18 +17,24 @@ interface SearchMapProps {
   properties: Property[];
   onPropertyClick: (id: string) => void;
   onBoundsChanged?: (bounds: LatLngBounds) => void;
+  onSearchThisArea?: (bounds: LatLngBounds) => void;
   activePropertyId?: string;
+  isSearching?: boolean;
 }
 
 export default function Map({
   properties,
   onPropertyClick,
   onBoundsChanged,
+  onSearchThisArea,
   activePropertyId,
+  isSearching,
 }: SearchMapProps) {
   const [center, setCenter] = useState<[number, number]>([40.7128, -74.006]);
   const [mapKey, setMapKey] = useState(0);
+  const [currentBounds, setCurrentBounds] = useState<LatLngBounds | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mapRef = useRef<LeafletMap | null>(null);
 
   const validProperties = useMemo(
     () =>
@@ -50,9 +56,16 @@ export default function Map({
   }, [validProperties]);
 
   const handleBoundsChanged = (bounds: LatLngBounds) => {
+    setCurrentBounds(bounds);
     if (!onBoundsChanged) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => onBoundsChanged(bounds), 350);
+  };
+
+  const handleSearchThisArea = () => {
+    if (currentBounds && onSearchThisArea) {
+      onSearchThisArea(currentBounds);
+    }
   };
 
   return (
@@ -63,6 +76,7 @@ export default function Map({
         zoom={validProperties.length > 0 ? 11 : 3}
         style={{ height: '100%', width: '100%' }}
         zoomControl
+        ref={mapRef}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -82,6 +96,17 @@ export default function Map({
           ))}
         </MarkerClusterGroup>
       </MapContainer>
+
+      {onSearchThisArea && currentBounds && (
+        <button
+          onClick={handleSearchThisArea}
+          disabled={isSearching}
+          className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-[999] bg-white border border-gray-300 rounded-lg px-4 py-2 shadow hover:bg-gray-50 disabled:opacity-50 transition text-sm font-medium text-gray-700"
+          aria-label="Search properties in current map area"
+        >
+          {isSearching ? 'Searching...' : 'Search this area'}
+        </button>
+      )}
 
       {validProperties.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-100/80 text-gray-500 text-sm pointer-events-none">
