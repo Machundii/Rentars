@@ -69,9 +69,16 @@ export async function respondToReview(req: AuthRequest, res: Response): Promise<
     res.status(400).json({ error: 'response is required' });
     return;
   }
+  if (response.trim().length > 1000) {
+    res.status(400).json({ error: 'Response must be at most 1000 characters' });
+    return;
+  }
   const result = await addHostResponse(req.params.id, hostId, response.trim());
   if (!result.success) {
-    res.status(400).json({ error: result.error });
+    const isOwnershipError =
+      result.error === 'Only the property owner can respond to this review' ||
+      result.error === 'Only the reviewed host can respond';
+    res.status(isOwnershipError ? 403 : 400).json({ error: result.error });
     return;
   }
   res.json(result.data);

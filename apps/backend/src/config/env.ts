@@ -15,6 +15,9 @@ const envSchema = z.object({
   TRUSTLESS_WORK_API_URL: z.string().url().optional(),
   TRUSTLESS_WORK_API_KEY: z.string().optional(),
   GEOCODING_API_KEY: z.string().optional(),
+  // hCaptcha bot protection (set HCAPTCHA_ENABLED=false to bypass in dev)
+  HCAPTCHA_SECRET_KEY: z.string().optional(),
+  HCAPTCHA_ENABLED: z.string().optional(),
 });
 
 export type Environment = z.infer<typeof envSchema>;

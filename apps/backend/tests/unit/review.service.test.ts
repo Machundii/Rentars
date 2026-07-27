@@ -4,6 +4,8 @@
 
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 
+const PAST_CHECKOUT = '2024-01-01';
+
 // ── Supabase mock ─────────────────────────────────────────────────────────────
 
 const mockSingle = mock(async () => ({ data: null, error: null }));
@@ -28,6 +30,7 @@ import {
   getReviewsForProperty,
   getReviewsForUser,
   getAverageRating,
+  addHostResponse,
 } from '../../src/services/review.service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,7 +92,7 @@ describe('review.service', () => {
               eq: mock(() => ({
                 eq: mock(() => ({
                   single: mock(async () => ({
-                    data: { id: 'b1', status: 'Confirmed' },
+                    data: { id: 'b1', status: 'Completed', check_out: PAST_CHECKOUT },
                     error: null,
                   })),
                 })),
@@ -119,7 +122,7 @@ describe('review.service', () => {
               eq: mock(() => ({
                 eq: mock(() => ({
                   single: mock(async () => ({
-                    data: { id: 'b1', status: 'Confirmed' },
+                    data: { id: 'b1', status: 'Completed', check_out: PAST_CHECKOUT },
                     error: null,
                   })),
                 })),
@@ -142,6 +145,67 @@ describe('review.service', () => {
       const result = await submitReview('b1', 'u1', 'u2', 4, 'Good');
       expect(result.success).toBe(false);
       expect(result.error).toBe('Duplicate review');
+    });
+
+    it('should reject review when booking is not completed', async () => {
+      (mockSupabase.from as any).mockImplementation(() => ({
+        select: mock(() => ({
+          eq: mock(() => ({
+            eq: mock(() => ({
+              single: mock(async () => ({
+                data: { id: 'b1', status: 'Confirmed', check_out: PAST_CHECKOUT },
+                error: null,
+              })),
+            })),
+          })),
+        })),
+      }));
+
+      const result = await submitReview('b1', 'u1', 'u2', 4, 'Good');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Can only review after the stay is completed');
+    });
+
+    it('should reject review when booking is cancelled', async () => {
+      (mockSupabase.from as any).mockImplementation(() => ({
+        select: mock(() => ({
+          eq: mock(() => ({
+            eq: mock(() => ({
+              single: mock(async () => ({
+                data: { id: 'b1', status: 'Cancelled', check_out: PAST_CHECKOUT },
+                error: null,
+              })),
+            })),
+          })),
+        })),
+      }));
+
+      const result = await submitReview('b1', 'u1', 'u2', 4, 'Good');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Cannot review a cancelled booking');
+    });
+
+    it('should reject review when checkout date has not passed', async () => {
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 7);
+      const futureDateStr = futureDate.toISOString().split('T')[0];
+
+      (mockSupabase.from as any).mockImplementation(() => ({
+        select: mock(() => ({
+          eq: mock(() => ({
+            eq: mock(() => ({
+              single: mock(async () => ({
+                data: { id: 'b1', status: 'Completed', check_out: futureDateStr },
+                error: null,
+              })),
+            })),
+          })),
+        })),
+      }));
+
+      const result = await submitReview('b1', 'u1', 'u2', 4, 'Good');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Cannot review before the checkout date has passed');
     });
   });
 
@@ -210,6 +274,145 @@ describe('review.service', () => {
       const result = await getReviewsForUser('u1');
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(1);
+    });
+  });
+
+  // ── addHostResponse ─────────────────────────────────────────────────────────
+
+  describe('addHostResponse', () => {
+    it('should allow owner to create a response', async () => {
+      const mockUpdated = {
+        id: 'rev-1',
+        host_response: 'Thank you!',
+        host_response_at: '2026-07-01T00:00:00Z',
+      };
+
+      (mockSupabase.from as any).mockImplementation((table: string) => {
+        if (table === 'reviews') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({
+                  data: { id: 'rev-1', target_id: 'host-1', property_id: 'prop-1' },
+                  error: null,
+                })),
+              })),
+            })),
+            update: mock(() => ({
+              eq: mock(() => ({
+                select: mock(() => ({
+                  single: mock(async () => ({ data: mockUpdated, error: null })),
+                })),
+              })),
+            })),
+          };
+        }
+        if (table === 'properties') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({
+                  data: { owner_id: 'host-1' },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        return {};
+      });
+
+      const result = await addHostResponse('rev-1', 'host-1', 'Thank you!');
+      expect(result.success).toBe(true);
+      expect(result.data?.host_response).toBe('Thank you!');
+    });
+
+    it('should allow owner to edit an existing response (upsert)', async () => {
+      const mockUpdated = {
+        id: 'rev-1',
+        host_response: 'Updated response',
+        host_response_at: '2026-07-02T00:00:00Z',
+      };
+
+      (mockSupabase.from as any).mockImplementation((table: string) => {
+        if (table === 'reviews') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({
+                  data: { id: 'rev-1', target_id: 'host-1', property_id: 'prop-1' },
+                  error: null,
+                })),
+              })),
+            })),
+            update: mock(() => ({
+              eq: mock(() => ({
+                select: mock(() => ({
+                  single: mock(async () => ({ data: mockUpdated, error: null })),
+                })),
+              })),
+            })),
+          };
+        }
+        if (table === 'properties') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({
+                  data: { owner_id: 'host-1' },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        return {};
+      });
+
+      const result = await addHostResponse('rev-1', 'host-1', 'Updated response');
+      expect(result.success).toBe(true);
+      expect(result.data?.host_response).toBe('Updated response');
+    });
+
+    it('should block non-owner with an ownership error', async () => {
+      (mockSupabase.from as any).mockImplementation((table: string) => {
+        if (table === 'reviews') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({
+                  data: { id: 'rev-1', target_id: 'host-1', property_id: 'prop-1' },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        if (table === 'properties') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({
+                  data: { owner_id: 'different-host' },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        return {};
+      });
+
+      const result = await addHostResponse('rev-1', 'intruder', 'Sneaky response');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Only the property owner');
+    });
+
+    it('should reject a response that exceeds 1000 characters', async () => {
+      const tooLong = 'x'.repeat(1001);
+      const result = await addHostResponse('rev-1', 'host-1', tooLong);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('1000 characters');
     });
   });
 
