@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabase.js';
 import type { ServiceResponse } from './index.js';
+import { sanitizeLongText, sanitizeResponse } from '../utils/sanitize.js';
 
 export interface Review {
   id: string;
@@ -29,7 +30,10 @@ export async function submitReview(
     return { success: false, error: 'Rating must be between 1 and 5' };
   }
 
-  // Verify booking belongs to reviewer and stay is fully completed
+  // Sanitize user-supplied text; enforce max 2000 chars for review comments
+  const cleanComment = sanitizeLongText(comment, 2_000);
+
+  // Verify booking belongs to reviewer
   const { data: booking, error: bookingError } = await supabase
     .from('bookings')
     .select('id, status, check_out')
@@ -58,7 +62,14 @@ export async function submitReview(
 
   const { data, error } = await supabase
     .from('reviews')
-    .insert({ booking_id: bookingId, reviewer_id: reviewerId, target_id: targetId, property_id: propertyId, rating, comment })
+    .insert({
+      booking_id: bookingId,
+      reviewer_id: reviewerId,
+      target_id: targetId,
+      property_id: propertyId,
+      rating,
+      comment: cleanComment,
+    })
     .select()
     .single();
 
@@ -146,10 +157,15 @@ export async function addHostResponse(
     return { success: false, error: 'Only the reviewed host can respond' };
   }
 
-  // Upsert: create if none, update if exists
+  // Sanitize host response; enforce max 2000 chars
+  const cleanResponse = sanitizeResponse(response, 2_000);
+  if (!cleanResponse) {
+    return { success: false, error: 'Response text is required' };
+  }
+
   const { data, error } = await supabase
     .from('reviews')
-    .update({ host_response: response.trim(), host_response_at: new Date().toISOString() })
+    .update({ host_response: cleanResponse, host_response_at: new Date().toISOString() })
     .eq('id', reviewId)
     .select()
     .single();
