@@ -1,6 +1,12 @@
 import { supabase } from '@/config/supabase.js';
 import type { ServiceResponse } from './index.js';
 
+const PLATFORM_FEE_PCT = 0.05;
+const MIN_PRICE_MULTIPLIER = 0.1;
+const MAX_PRICE_MULTIPLIER = 10;
+const MIN_NIGHTLY_PRICE = 1;
+const MAX_NIGHTLY_PRICE = 10_000;
+
 export interface SeasonalPricing {
   id: string;
   property_id: string;
@@ -27,6 +33,17 @@ export interface DayPricing {
   price: number;
   is_available: boolean;
   reason?: string;
+}
+
+export interface PriceQuote {
+  base_nightly_rate: number;
+  nights: number;
+  subtotal: number;
+  dynamic_adjustments: number;
+  platform_fee_pct: number;
+  platform_fee: number;
+  total: number;
+  breakdown: DayPricing[];
 }
 
 /**
@@ -149,6 +166,19 @@ export async function createSeasonalPricing(
   ownerId: string,
   input: Omit<SeasonalPricing, 'id' | 'property_id' | 'created_at'>,
 ): Promise<ServiceResponse<SeasonalPricing>> {
+  if (
+    input.price_multiplier < MIN_PRICE_MULTIPLIER ||
+    input.price_multiplier > MAX_PRICE_MULTIPLIER
+  ) {
+    return {
+      success: false,
+      error: `price_multiplier must be between ${MIN_PRICE_MULTIPLIER} and ${MAX_PRICE_MULTIPLIER}`,
+    };
+  }
+  if (new Date(input.start_date) >= new Date(input.end_date)) {
+    return { success: false, error: 'start_date must be before end_date' };
+  }
+
   // Verify ownership
   const { data: property } = await supabase
     .from('properties')
@@ -207,6 +237,19 @@ export async function createSpecialEvent(
   ownerId: string,
   input: Omit<SpecialEvent, 'id' | 'property_id' | 'created_at'>,
 ): Promise<ServiceResponse<SpecialEvent>> {
+  if (
+    input.price_multiplier !== undefined &&
+    (input.price_multiplier < MIN_PRICE_MULTIPLIER || input.price_multiplier > MAX_PRICE_MULTIPLIER)
+  ) {
+    return {
+      success: false,
+      error: `price_multiplier must be between ${MIN_PRICE_MULTIPLIER} and ${MAX_PRICE_MULTIPLIER}`,
+    };
+  }
+  if (new Date(input.start_date) >= new Date(input.end_date)) {
+    return { success: false, error: 'start_date must be before end_date' };
+  }
+
   // Verify ownership
   const { data: property } = await supabase
     .from('properties')
@@ -255,4 +298,76 @@ export async function deleteSpecialEvent(
 
   if (error) return { success: false, error: error.message };
   return { success: true };
+}
+
+/**
+ * Preview per-day effective prices across a date range with min/max bounds enforced.
+ * Intended for hosts to validate their rule configuration before publishing.
+ */
+export async function previewPricing(
+  propertyId: string,
+  start: string,
+  end: string,
+): Promise<ServiceResponse<{ total: number; breakdown: DayPricing[] }>> {
+  const result = await calculateRangePrice(propertyId, start, end);
+  if (!result.success) return result;
+
+  const bounded = result.data!.breakdown.map((day) => ({
+    ...day,
+    price: day.is_available
+      ? Math.min(MAX_NIGHTLY_PRICE, Math.max(MIN_NIGHTLY_PRICE, day.price))
+      : day.price,
+  }));
+
+  const total =
+    Math.round(bounded.reduce((sum, d) => sum + (d.is_available ? d.price : 0), 0) * 100) / 100;
+
+  return { success: true, data: { total, breakdown: bounded } };
+}
+
+/**
+ * Return a full price quote for a stay: base rate breakdown, dynamic adjustments,
+ * platform fee, and total. The total here is what booking creation will charge.
+ */
+export async function getPropertyQuote(
+  propertyId: string,
+  start: string,
+  end: string,
+): Promise<ServiceResponse<PriceQuote>> {
+  const { data: property, error: propError } = await supabase
+    .from('properties')
+    .select('base_price_per_night')
+    .eq('id', propertyId)
+    .single();
+
+  if (propError || !property) {
+    return { success: false, error: 'Property not found' };
+  }
+
+  const baseRate = (property as { base_price_per_night: number }).base_price_per_night;
+
+  const rangeResult = await calculateRangePrice(propertyId, start, end);
+  if (!rangeResult.success) return { success: false, error: rangeResult.error };
+
+  const { breakdown } = rangeResult.data!;
+  const nights = breakdown.filter((d) => d.is_available).length;
+  const subtotal = Math.round(baseRate * nights * 100) / 100;
+  const dynamicTotal = Math.round(rangeResult.data!.total * 100) / 100;
+  const dynamicAdjustments = Math.round((dynamicTotal - subtotal) * 100) / 100;
+  const platformFee = Math.round(dynamicTotal * PLATFORM_FEE_PCT * 100) / 100;
+  const total = Math.round((dynamicTotal + platformFee) * 100) / 100;
+
+  return {
+    success: true,
+    data: {
+      base_nightly_rate: baseRate,
+      nights,
+      subtotal,
+      dynamic_adjustments: dynamicAdjustments,
+      platform_fee_pct: PLATFORM_FEE_PCT,
+      platform_fee: platformFee,
+      total,
+      breakdown,
+    },
+  };
 }

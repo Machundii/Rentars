@@ -6,7 +6,7 @@
     "strict": true,
     "esModuleInterop": true,
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": ".",
     "paths": {
       "@/*": ["./src/*"],
       "@/services/*": ["./src/services/*"],
@@ -16,5 +16,6 @@
       "@/types/*": ["./src/types/*"]
     }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "tests/**/*", "scripts/**/*", "database/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }

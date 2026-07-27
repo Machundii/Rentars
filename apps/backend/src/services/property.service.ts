@@ -10,6 +10,7 @@ import { supabase } from '@/config/supabase.js';
 import * as cache from './cache.service.js';
 import type { ServiceResponse } from './index.js';
 import { CANONICAL_AMENITIES } from '@/types/amenities.js';
+import { sanitizeLongText, sanitizeShortText } from '@/utils/sanitize.js';
 
 const TTL_ALL = 60;
 const TTL_ONE = 300;
@@ -37,6 +38,9 @@ export interface Property {
   amenities?: string[];
   images?: string[];
   on_chain_id?: number;
+  // Exact coordinates — redacted on public responses (see locationPrivacy.ts)
+  latitude?: number | null;
+  longitude?: number | null;
   // House rules
   pets_allowed?: boolean;
   smoking_allowed?: boolean;
@@ -157,9 +161,19 @@ export async function createProperty(
     if (amenityError) return { success: false, error: amenityError };
   }
 
+  // Sanitize user-generated text fields before storing
+  const sanitized: Partial<Property> = {
+    ...payload,
+    title: sanitizeShortText(payload.title, 255),
+    description: payload.description ? sanitizeLongText(payload.description, 10_000) : undefined,
+    additional_rules: payload.additional_rules
+      ? sanitizeLongText(payload.additional_rules, 2_000)
+      : undefined,
+  };
+
   const { data, error } = await supabase
     .from('properties')
-    .insert(payload)
+    .insert(sanitized)
     .select()
     .single();
 
@@ -198,9 +212,21 @@ export async function updateProperty(
     if (amenityError) return { success: false, error: amenityError };
   }
 
+  // Sanitize user-generated text fields before storing
+  const sanitized: Partial<Property> = { ...payload };
+  if (payload.title !== undefined) {
+    sanitized.title = sanitizeShortText(payload.title, 255);
+  }
+  if (payload.description !== undefined) {
+    sanitized.description = sanitizeLongText(payload.description, 10_000);
+  }
+  if (payload.additional_rules !== undefined) {
+    sanitized.additional_rules = sanitizeLongText(payload.additional_rules, 2_000);
+  }
+
   const { data, error } = await supabase
     .from('properties')
-    .update(payload)
+    .update(sanitized)
     .eq('id', id)
     .select()
     .single();
