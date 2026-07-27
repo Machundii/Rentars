@@ -1,33 +1,26 @@
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { isTokenRevoked } from '@/services/auth.service.js';
+import { env } from '@/config/env.js';
 
 export interface AuthRequest extends Request {
   userId?: string;
+  user?: { id: string; role?: string };
 }
 
-export async function authenticate(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+export function authenticate(req: AuthRequest, res: Response, next: NextFunction): void {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
-
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    res.status(500).json({ error: 'Server misconfiguration' });
-    return;
-  }
-
   try {
-    const decoded = jwt.verify(token, secret) as { userId: string };
-
-    if (await isTokenRevoked(token)) {
-      res.status(401).json({ error: 'Token has been revoked' });
-      return;
-    }
-
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as {
+      userId: string;
+      role?: string;
+    };
+    // Populate both shapes so legacy code (req.userId) and newer code (req.user.id) work.
     req.userId = decoded.userId;
+    req.user = { id: decoded.userId, role: decoded.role };
     next();
   } catch {
     res.status(401).json({ error: 'Invalid token' });

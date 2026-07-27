@@ -8,33 +8,14 @@
 
 import { z } from 'zod';
 import type { NextFunction, Request, Response } from 'express';
+import { CANONICAL_AMENITIES } from '@/types/amenities.js';
+import { ValidationError } from '@/types/errors.js';
 
-// ─── Allowed amenities ────────────────────────────────────────────────────────
+// Re-export the canonical list so consumers can use either import path.
+export { CANONICAL_AMENITIES as ALLOWED_AMENITIES } from '@/types/amenities.js';
+export type { Amenity } from '@/types/amenities.js';
 
-export const ALLOWED_AMENITIES = [
-  'wifi',
-  'parking',
-  'pool',
-  'gym',
-  'air_conditioning',
-  'heating',
-  'kitchen',
-  'washer',
-  'dryer',
-  'tv',
-  'workspace',
-  'elevator',
-  'hot_tub',
-  'bbq_grill',
-  'fireplace',
-  'beach_access',
-  'ski_access',
-  'pet_friendly',
-  'smoking_allowed',
-  'wheelchair_accessible',
-] as const;
-
-export type Amenity = (typeof ALLOWED_AMENITIES)[number];
+const ALLOWED_AMENITIES = CANONICAL_AMENITIES;
 
 // ─── Location sub-schema ──────────────────────────────────────────────────────
 
@@ -133,6 +114,14 @@ export const propertySearchSchema = z.object({
   { message: 'max_price must be >= min_price', path: ['max_price'] },
 );
 
+// ─── Geo search query schema ──────────────────────────────────────────────────
+
+export const geoSearchSchema = z.object({
+  lat: z.coerce.number().min(-90, 'lat must be between -90 and 90').max(90, 'lat must be between -90 and 90'),
+  lng: z.coerce.number().min(-180, 'lng must be between -180 and 180').max(180, 'lng must be between -180 and 180'),
+  radiusKm: z.coerce.number().positive('radiusKm must be positive').max(500, 'radiusKm must not exceed 500').default(50),
+});
+
 // ─── Middleware factories ─────────────────────────────────────────────────────
 
 /**
@@ -143,13 +132,17 @@ export function validateBody<T extends z.ZodTypeAny>(schema: T) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
-      res.status(422).json({
-        error: 'Validation failed',
-        details: result.error.errors.map((e) => ({
-          field: e.path.join('.'),
-          message: e.message,
-        })),
+      const fields: Record<string, string[]> = {};
+      result.error.errors.forEach((error) => {
+        const field = error.path.join('.');
+        if (!fields[field]) {
+          fields[field] = [];
+        }
+        fields[field].push(error.message);
       });
+
+      const validationError = new ValidationError('Validation failed', fields);
+      next(validationError);
       return;
     }
     // Replace req.body with the parsed (sanitised + defaulted) value
@@ -160,19 +153,23 @@ export function validateBody<T extends z.ZodTypeAny>(schema: T) {
 
 /**
  * Returns an Express middleware that validates `req.query` against the given
- * Zod schema. On failure it responds 422 with a structured errors array.
+ * Zod schema. On failure it throws a ValidationError that is caught by error middleware.
  */
 export function validateQuery<T extends z.ZodTypeAny>(schema: T) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const result = schema.safeParse(req.query);
     if (!result.success) {
-      res.status(422).json({
-        error: 'Validation failed',
-        details: result.error.errors.map((e) => ({
-          field: e.path.join('.'),
-          message: e.message,
-        })),
+      const fields: Record<string, string[]> = {};
+      result.error.errors.forEach((error) => {
+        const field = error.path.join('.');
+        if (!fields[field]) {
+          fields[field] = [];
+        }
+        fields[field].push(error.message);
       });
+
+      const validationError = new ValidationError('Validation failed', fields);
+      next(validationError);
       return;
     }
     // Attach parsed query so controllers get typed, coerced values

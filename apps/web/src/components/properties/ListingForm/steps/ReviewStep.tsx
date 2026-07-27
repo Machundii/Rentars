@@ -22,7 +22,7 @@ export default function ReviewStep({ formData, errors }: ReviewStepProps) {
           <p className="text-gray-700">{formData.description}</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <div>
             <p className="text-sm text-gray-600">Type</p>
             <p className="font-semibold capitalize">{formData.propertyType}</p>
@@ -32,6 +32,21 @@ export default function ReviewStep({ formData, errors }: ReviewStepProps) {
             <p className="font-semibold">
               {formData.city}, {formData.state}
             </p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Max Guests</p>
+            <p className="font-semibold">{formData.maxGuests ?? '—'}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-sm text-gray-600">Bedrooms</p>
+            <p className="font-semibold">{formData.bedrooms ?? '—'}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Bathrooms</p>
+            <p className="font-semibold">{formData.bathrooms ?? '—'}</p>
           </div>
         </div>
 

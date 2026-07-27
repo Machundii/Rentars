@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import {
+  cancelBooking,
+  confirmBooking,
   createBooking,
   deleteBooking,
   getBooking,
+  getBookingCalendar,
+  listUserBookings,
   updateBooking,
 } from '@/controllers/booking.controller.js';
 import { authenticate } from '@/middleware/auth.middleware.js';
-import { requireBookingOwner } from '@/middleware/rbac.middleware.js';
+import { requireEmailVerified } from '@/middleware/emailVerified.middleware.js';
 import { bookingRateLimiter } from '@/middleware/rateLimiter.js';
 import {
   createBookingSchema,
@@ -16,16 +20,31 @@ import {
 
 const router = Router();
 
+// GET /api/v1/bookings — list current user's bookings (cursor pagination)
+router.get('/', authenticate, listUserBookings);
+
 // GET /api/v1/bookings/:id
 router.get('/:id', authenticate, getBooking);
 
-// POST /api/v1/bookings
-router.post('/', authenticate, bookingRateLimiter, validateBody(createBookingSchema), createBooking);
+// GET /api/v1/bookings/:id/calendar.ics
+router.get('/:id/calendar.ics', authenticate, getBookingCalendar);
 
-// PATCH /api/v1/bookings/:id  — owner only
-router.patch('/:id', authenticate, requireBookingOwner, validateBody(updateBookingSchema), updateBooking);
+// GET /api/v1/bookings/:id/receipt.pdf
+router.get('/:id/receipt.pdf', authenticate, getBookingReceipt);
 
-// DELETE /api/v1/bookings/:id  — owner only
-router.delete('/:id', authenticate, requireBookingOwner, deleteBooking);
+// POST /api/v1/bookings  (requires email verification)
+router.post('/', authenticate, requireEmailVerified, bookingRateLimiter, validateBody(createBookingSchema), createBooking);
+
+// POST /api/v1/bookings/:id/confirm
+router.post('/:id/confirm', authenticate, confirmBooking);
+
+// POST /api/v1/bookings/:id/cancel
+router.post('/:id/cancel', authenticate, cancelBooking);
+
+// PATCH /api/v1/bookings/:id
+router.patch('/:id', authenticate, validateBody(updateBookingSchema), updateBooking);
+
+// DELETE /api/v1/bookings/:id
+router.delete('/:id', authenticate, deleteBooking);
 
 export default router;

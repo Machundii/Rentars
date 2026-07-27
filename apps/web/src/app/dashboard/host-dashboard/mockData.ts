@@ -1,3 +1,24 @@
+export const mockMonthlyMetrics = [
+  { month: 'Jun 2025', earnings: 1300, bookings: 5 },
+  { month: 'Jul 2025', earnings: 1400, bookings: 6 },
+  { month: 'Aug 2025', earnings: 1650, bookings: 7 },
+  { month: 'Sep 2025', earnings: 1500, bookings: 6 },
+  { month: 'Oct 2025', earnings: 1800, bookings: 8 },
+  { month: 'Nov 2025', earnings: 1700, bookings: 7 },
+  { month: 'Dec 2025', earnings: 2100, bookings: 9 },
+  { month: 'Jan 2026', earnings: 1950, bookings: 8 },
+  { month: 'Feb 2026', earnings: 1850, bookings: 7 },
+  { month: 'Mar 2026', earnings: 2000, bookings: 8 },
+  { month: 'Apr 2026', earnings: 2200, bookings: 9 },
+  { month: 'May 2026', earnings: 1890, bookings: 8 },
+  { month: 'Jun 2026', earnings: 2450, bookings: 10 },
+];
+
+export const mockOccupancy = {
+  bookedNights: 168,
+  availableNights: 240,
+};
+
 export const mockHostData = {
   bookingStats: {
     activeBookings: 5,
@@ -52,15 +73,17 @@ export const mockHostData = {
       id: '1',
       amount: 1200,
       date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-      status: 'completed',
+      status: 'completed' as const,
       method: 'Bank Transfer',
     },
     {
       id: '2',
       amount: 950,
       date: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000),
-      status: 'completed',
+      status: 'completed' as const,
       method: 'Bank Transfer',
     },
   ],
+  monthlyMetrics: mockMonthlyMetrics,
+  occupancy: mockOccupancy,
 };

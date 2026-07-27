@@ -4,14 +4,20 @@
  * Controllers should call these functions instead of touching Supabase directly.
  */
 
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { randomBytes } from 'crypto';
 import { Keypair, TransactionBuilder, Networks, BASE_FEE } from '@stellar/stellar-sdk';
 import { supabase } from '@/config/supabase.js';
+import { env } from '@/config/env.js';
 import { AuthError, AuthErrorCode } from '@/types/errors.js';
-import { redisClient } from '@/config/redis.js';
-import { securityLogger } from './logging.service.js';
+import { emailService } from './email.service.js';
 import type { ServiceResponse } from './index.js';
+
+const VERIFICATION_TOKEN_EXPIRES_MINUTES = 24 * 60; // 24 hours
+
+function hashToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,13 +33,7 @@ export interface RegisterResult {
 
 export interface LoginResult {
   token: string;
-  refreshToken: string;
   user: AuthUser;
-}
-
-export interface RefreshResult {
-  token: string;
-  refreshToken: string;
 }
 
 export interface WalletChallengeResult {
@@ -43,86 +43,7 @@ export interface WalletChallengeResult {
 
 export interface WalletVerifyResult {
   token: string;
-  refreshToken: string;
   user: AuthUser;
-}
-
-// ─── Token helpers ────────────────────────────────────────────────────────────
-
-const JWT_SECRET = () => {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) throw new AuthError(AuthErrorCode.INVALID_TOKEN, 'JWT_SECRET not configured');
-  return secret;
-};
-
-const ACCESS_TOKEN_TTL = '15m';
-const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
-
-function signAccessToken(userId: string): string {
-  return jwt.sign({ userId }, JWT_SECRET(), { expiresIn: ACCESS_TOKEN_TTL });
-}
-
-async function createRefreshToken(userId: string): Promise<string> {
-  const token = randomBytes(40).toString('hex');
-  const key = `refresh:${token}`;
-  if (redisClient) {
-    await redisClient.set(key, userId, { EX: REFRESH_TOKEN_TTL_SECONDS });
-  } else {
-    // Fallback: store in Supabase
-    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000).toISOString();
-    await supabase.from('refresh_tokens').insert({ token, user_id: userId, expires_at: expiresAt });
-  }
-  return token;
-}
-
-async function resolveRefreshToken(token: string): Promise<string> {
-  if (redisClient) {
-    const userId = await redisClient.get(`refresh:${token}`);
-    if (!userId) throw new AuthError(AuthErrorCode.INVALID_TOKEN, 'Invalid or expired refresh token');
-    return userId;
-  }
-  // Fallback: Supabase
-  const { data, error } = await supabase
-    .from('refresh_tokens')
-    .select('user_id, expires_at')
-    .eq('token', token)
-    .single();
-  if (error || !data) throw new AuthError(AuthErrorCode.INVALID_TOKEN, 'Invalid or expired refresh token');
-  if (new Date(data.expires_at) < new Date()) {
-    await supabase.from('refresh_tokens').delete().eq('token', token);
-    throw new AuthError(AuthErrorCode.TOKEN_EXPIRED, 'Refresh token expired');
-  }
-  return data.user_id;
-}
-
-async function revokeRefreshToken(token: string): Promise<void> {
-  if (redisClient) {
-    await redisClient.del(`refresh:${token}`);
-  } else {
-    await supabase.from('refresh_tokens').delete().eq('token', token);
-  }
-}
-
-/** Add an access token to the revocation list until its natural expiry. */
-export async function revokeAccessToken(token: string): Promise<void> {
-  try {
-    const decoded = jwt.decode(token) as { exp?: number } | null;
-    if (decoded?.exp) {
-      const ttl = decoded.exp - Math.floor(Date.now() / 1000);
-      if (ttl > 0 && redisClient) {
-        await redisClient.set(`blocklist:${token}`, '1', { EX: ttl });
-      }
-    }
-  } catch {
-    // best-effort
-  }
-}
-
-/** Check if an access token is revoked. */
-export async function isTokenRevoked(token: string): Promise<boolean> {
-  if (!redisClient) return false;
-  const val = await redisClient.get(`blocklist:${token}`);
-  return val !== null;
 }
 
 // ─── Service functions ────────────────────────────────────────────────────────
@@ -158,6 +79,20 @@ export async function registerUser(
     );
   }
 
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + VERIFICATION_TOKEN_EXPIRES_MINUTES * 60 * 1000);
+
+  await supabase.from('users').upsert({
+    id: data.user.id,
+    email: data.user.email,
+    email_verified: false,
+    email_verification_token: tokenHash,
+    email_verification_expires_at: expiresAt.toISOString(),
+  });
+
+  await emailService.sendVerificationEmail({ to: data.user.email!, token: rawToken });
+
   const user: AuthUser = {
     id: data.user.id,
     email: data.user.email,
@@ -188,7 +123,6 @@ export async function loginUser(
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
-    await securityLogger.logAuthEvent('login_failure', undefined, { email });
     throw new AuthError(AuthErrorCode.INVALID_CREDENTIALS, error.message);
   }
 
@@ -196,10 +130,11 @@ export async function loginUser(
     throw new AuthError(AuthErrorCode.USER_NOT_FOUND, 'Login failed: no user returned');
   }
 
-  const token = signAccessToken(data.user.id);
-  const refreshToken = await createRefreshToken(data.user.id);
-
-  await securityLogger.logAuthEvent('login_success', data.user.id);
+  const token = jwt.sign(
+    { userId: data.user.id },
+    env.JWT_SECRET,
+    { expiresIn: '7d' },
+  );
 
   const user: AuthUser = {
     id: data.user.id,
@@ -207,7 +142,7 @@ export async function loginUser(
     created_at: data.user.created_at,
   };
 
-  return { success: true, data: { token, refreshToken, user } };
+  return { success: true, data: { token, user } };
 }
 
 /**
@@ -356,8 +291,11 @@ export async function verifyWalletChallenge(
   }
 
   // Issue JWT
-  const token = signAccessToken(userData.id);
-  const refreshToken = await createRefreshToken(userData.id);
+  const token = jwt.sign(
+    { userId: userData.id },
+    env.JWT_SECRET,
+    { expiresIn: '7d' },
+  );
 
   const user: AuthUser = {
     id: userData.id,
@@ -367,35 +305,107 @@ export async function verifyWalletChallenge(
 
   return {
     success: true,
-    data: { token, refreshToken, user },
+    data: { token, user },
   };
 }
 
-/**
- * Issue new access + refresh tokens given a valid refresh token (rotation).
- */
-export async function refreshTokens(
-  refreshToken: string,
-): Promise<ServiceResponse<RefreshResult>> {
-  const userId = await resolveRefreshToken(refreshToken);
-  await revokeRefreshToken(refreshToken); // rotate
-  const token = signAccessToken(userId);
-  const newRefreshToken = await createRefreshToken(userId);
-  return { success: true, data: { token, refreshToken: newRefreshToken } };
+// ─── Password reset ───────────────────────────────────────────────────────────
+
+const RESET_TOKEN_EXPIRES_MINUTES = 60;
+
+function hashToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex');
 }
 
 /**
- * Logout: revoke both access and refresh tokens.
+ * Request a password reset for the given email.
+ * Always returns success to prevent user enumeration — the email is only
+ * sent when an account with that address actually exists.
  */
-export async function logoutUser(
-  accessToken: string,
-  refreshToken: string,
+export async function requestPasswordReset(
+  email: string,
 ): Promise<ServiceResponse<void>> {
-  await Promise.all([
-    revokeAccessToken(accessToken),
-    revokeRefreshToken(refreshToken),
-  ]);
-  const decoded = jwt.decode(accessToken) as { userId?: string } | null;
-  if (decoded?.userId) await securityLogger.logAuthEvent('logout', decoded.userId);
+  if (!email) {
+    throw new AuthError(AuthErrorCode.INVALID_CREDENTIALS, 'Email is required');
+  }
+
+  const { data: userData } = await supabase.auth.admin.listUsers();
+  const user = (userData?.users ?? []).find((u) => u.email === email.toLowerCase().trim());
+
+  if (user) {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRES_MINUTES * 60 * 1000);
+
+    await supabase.from('password_reset_tokens').insert({
+      user_id: user.id,
+      token_hash: tokenHash,
+      expires_at: expiresAt.toISOString(),
+    });
+
+    await emailService.sendPasswordResetEmail({ to: email, token: rawToken });
+  }
+
+  return { success: true };
+}
+
+/**
+ * Confirm a password reset using the raw token received by email.
+ * Validates the token, updates the password, consumes the token, and
+ * invalidates existing sessions by updating `sessions_invalidated_at`.
+ */
+export async function confirmPasswordReset(
+  rawToken: string,
+  newPassword: string,
+): Promise<ServiceResponse<void>> {
+  if (!rawToken || !newPassword) {
+    throw new AuthError(AuthErrorCode.INVALID_CREDENTIALS, 'Token and new password are required');
+  }
+
+  const tokenHash = hashToken(rawToken);
+
+  const { data: tokenRow, error: fetchError } = await supabase
+    .from('password_reset_tokens')
+    .select('*')
+    .eq('token_hash', tokenHash)
+    .single();
+
+  if (fetchError || !tokenRow) {
+    throw new AuthError(AuthErrorCode.INVALID_TOKEN, 'Invalid or unknown reset token');
+  }
+
+  const row = tokenRow as {
+    id: string;
+    user_id: string;
+    expires_at: string;
+    consumed_at: string | null;
+  };
+
+  if (row.consumed_at) {
+    throw new AuthError(AuthErrorCode.INVALID_TOKEN, 'Reset token has already been used');
+  }
+
+  if (new Date(row.expires_at) < new Date()) {
+    throw new AuthError(AuthErrorCode.TOKEN_EXPIRED, 'Reset token has expired');
+  }
+
+  const { error: updateError } = await supabase.auth.admin.updateUserById(row.user_id, {
+    password: newPassword,
+  });
+
+  if (updateError) {
+    throw new AuthError(AuthErrorCode.INVALID_CREDENTIALS, updateError.message);
+  }
+
+  await supabase
+    .from('password_reset_tokens')
+    .update({ consumed_at: new Date().toISOString() })
+    .eq('id', row.id);
+
+  await supabase
+    .from('users')
+    .update({ sessions_invalidated_at: new Date().toISOString() })
+    .eq('id', row.user_id);
+
   return { success: true };
 }

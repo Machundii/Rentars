@@ -4,8 +4,8 @@ import {
   registerUser,
   generateWalletChallenge,
   verifyWalletChallenge,
-  refreshTokens,
-  logoutUser,
+  requestPasswordReset,
+  confirmPasswordReset,
 } from '@/services/auth.service.js';
 import { AuthError } from '@/types/errors.js';
 
@@ -61,23 +61,14 @@ export async function walletVerify(req: Request, res: Response): Promise<void> {
   }
 }
 
-export async function refresh(req: Request, res: Response): Promise<void> {
-  const { refreshToken } = req.body;
-  if (!refreshToken) {
-    res.status(400).json({ error: 'refreshToken is required' });
-    return;
-  }
-  const result = await refreshTokens(refreshToken);
-  res.json(result.data);
+export async function requestReset(req: Request, res: Response): Promise<void> {
+  const { email } = req.body;
+  await requestPasswordReset(email);
+  res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
 }
 
-export async function logout(req: Request, res: Response): Promise<void> {
-  const accessToken = req.headers.authorization?.split(' ')[1] ?? '';
-  const { refreshToken } = req.body;
-  if (!refreshToken) {
-    res.status(400).json({ error: 'refreshToken is required' });
-    return;
-  }
-  await logoutUser(accessToken, refreshToken);
-  res.status(204).send();
+export async function confirmReset(req: Request, res: Response): Promise<void> {
+  const { token, password } = req.body;
+  await confirmPasswordReset(token, password);
+  res.json({ message: 'Password updated successfully. Please log in with your new password.' });
 }

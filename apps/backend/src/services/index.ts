@@ -12,4 +12,7 @@ export interface ServiceResponse<T = unknown> {
   data?: T;
   error?: string;
   warning?: string;
+  statusCode?: number;
+  /** True when failure is due to a booking date conflict (maps to HTTP 409). */
+  conflict?: boolean;
 }

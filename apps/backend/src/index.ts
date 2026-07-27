@@ -1,66 +1,117 @@
+/**
+ * Application entry point.
+ *
+ * dotenv is loaded before anything else so env vars are available when
+ * config/env.ts runs its startup validation.  If any required variables are
+ * missing or invalid, env.ts calls process.exit(1) with a full error report.
+ */
+
+import 'dotenv/config'; // must be first import
+import { env } from './config/env.js';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import express from 'express';
-import helmet from 'helmet';
 import { errorMiddleware } from './middleware/error.middleware';
 import { rateLimiter } from './middleware/rateLimiter';
+import { timeoutMiddleware } from './middleware/timeout.middleware';
 import authRoutes from './routes/auth.routes';
 import bookingRoutes from './routes/booking.routes';
 import propertyRoutes from './routes/property.routes';
 import locationRoutes from './routes/location.routes';
 import { setupOpenApiRoutes } from './config/swagger';
+import { validateBlockchainConfig } from './blockchain/config.js';
+import { startSyncScheduler } from './services/cleanup-schedular.js';
 
 dotenv.config();
 
 export const app = express();
 
-// Security headers
-app.use(helmet());
+// ── Core middleware ───────────────────────────────────────────────────────────
 
-app.use(express.json({ limit: '10kb' }));
-
-// CORS — support comma-separated list of allowed origins
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3001')
-  .split(',')
-  .map((o) => o.trim());
-
+app.use(express.json());
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Allow non-browser requests (e.g. mobile, curl) only in dev
-      if (!origin && process.env.NODE_ENV !== 'production') return callback(null, true);
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-      callback(new Error(`CORS: origin ${origin} not allowed`));
-    },
+    origin: [env.CORS_ORIGIN],
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-  })
+  }),
 );
 app.use(rateLimiter);
+app.use(timeoutMiddleware);
 app.use(requestLoggingMiddleware);
 
-// Routes
-app.use('/auth', authRoutes);
-app.use('/api/bookings', bookingRoutes);
-app.use('/api/properties', propertyRoutes);
-app.use('/api/locations', locationRoutes);
-app.use('/api/reviews', reviewRoutes);
-app.use('/api/wishlists', wishlistRoutes);
-app.use('/api/notifications', notificationRoutes);
+// ── Metrics (must be before routes to record all requests) ────────────────────
+app.use(metricsMiddleware);
+app.use(metricsRouter);
 
-// Health check
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'Rentars API 🚀' });
-});
+// ── Application routes ────────────────────────────────────────────────────────
+app.use(routes);
 
-// OpenAPI docs
+// ── OpenAPI docs ──────────────────────────────────────────────────────────────
 setupOpenApiRoutes(app);
 
+// ── Error handling ────────────────────────────────────────────────────────────
 app.use(errorMiddleware);
 
+const configErrors = validateBlockchainConfig();
+if (configErrors.length > 0) {
+  const errorDetails = configErrors
+    .map((err) => `  - ${err.field}: ${err.message}`)
+    .join('\n');
+  console.error('❌ Blockchain configuration validation failed:\n' + errorDetails);
+  process.exit(1);
+}
+
 const PORT = parseInt(process.env.PORT || '3000', 10);
-app.listen(PORT, () => {
-  console.log(`🚀 Rentars API running on http://localhost:${PORT}`);
-  startSyncScheduler();
+const GRACE_SHUTDOWN_TIMEOUT = parseInt(
+  process.env.GRACE_SHUTDOWN_TIMEOUT_MS || '30000',
+  10
+);
+
+async function startServer(): Promise<void> {
+  // Retry dependency connections with exponential backoff
+  await retryDependencyConnections();
+
+  const server = app.listen(PORT, () => {
+    console.log(`🚀 Rentars API running on http://localhost:${PORT}`);
+    startSyncScheduler();
+  });
+
+  // Graceful shutdown handlers
+  const shutdownSignals = ['SIGTERM', 'SIGINT'];
+
+  function gracefulShutdown(signal: string): void {
+    console.log(`\n[Shutdown] Received ${signal}, starting graceful shutdown...`);
+
+    server.close(() => {
+      console.log('[Shutdown] HTTP server closed');
+      process.exit(0);
+    });
+
+    const shutdownTimer = setTimeout(() => {
+      console.error('[Shutdown] Forced shutdown after timeout');
+      process.exit(1);
+    }, GRACE_SHUTDOWN_TIMEOUT);
+
+    shutdownTimer.unref();
+  }
+
+  shutdownSignals.forEach((signal) => {
+    process.on(signal, () => gracefulShutdown(signal));
+  });
+
+  process.on('uncaughtException', (error) => {
+    console.error('[Error] Uncaught exception:', error);
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('[Error] Unhandled rejection at', promise, 'reason:', reason);
+    process.exit(1);
+  });
+}
+
+startServer().catch((error) => {
+  console.error('[Startup] Fatal error:', error);
+  process.exit(1);
 });

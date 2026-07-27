@@ -1,5 +1,6 @@
 import { supabase } from '@/config/supabase.js';
 import { uploadImage, deleteImage as deleteStorageImage } from '@/config/supabase-storage.js';
+import * as cache from './cache.service.js';
 import type { ServiceResponse } from './index.js';
 
 export interface PropertyImage {
@@ -55,6 +56,10 @@ export async function addPropertyImage(
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  // Invalidate the cached property detail so the new image is visible immediately.
+  await cache.del(`property:${propertyId}`);
+
   return { success: true, data: data as PropertyImage };
 }
 
@@ -112,6 +117,9 @@ export async function removePropertyImage(
   const { error } = await supabase.from('property_images').delete().eq('id', imageId);
   if (error) return { success: false, error: error.message };
 
+  // Invalidate the cached property detail so the removed image is no longer served.
+  await cache.del(`property:${propertyId}`);
+
   // If deleted image was primary, promote next one
   if ((image as PropertyImage).is_primary) {
     const { data: next } = await supabase
@@ -128,6 +136,49 @@ export async function removePropertyImage(
   }
 
   return { success: true };
+}
+
+/**
+ * Reorder images for a property by providing a full ordered list of image IDs.
+ * Updates display_order for each image to match the given array index.
+ *
+ * @param propertyId - UUID of the property
+ * @param ownerId - UUID of the requesting user
+ * @param orderedIds - Image IDs in the new desired order
+ */
+export async function reorderPropertyImages(
+  propertyId: string,
+  ownerId: string,
+  orderedIds: string[],
+): Promise<ServiceResponse<PropertyImage[]>> {
+  const { data: property } = await supabase
+    .from('properties')
+    .select('owner_id')
+    .eq('id', propertyId)
+    .single();
+
+  if (!property || (property as { owner_id: string }).owner_id !== ownerId) {
+    return { success: false, error: 'Forbidden: you do not own this property' };
+  }
+
+  const updates = orderedIds.map((id, index) =>
+    supabase
+      .from('property_images')
+      .update({ display_order: index + 1 })
+      .eq('id', id)
+      .eq('property_id', propertyId),
+  );
+
+  await Promise.all(updates);
+
+  const { data, error } = await supabase
+    .from('property_images')
+    .select('*')
+    .eq('property_id', propertyId)
+    .order('display_order', { ascending: true });
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: data as PropertyImage[] };
 }
 
 /**

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@/tests/utils/test-utils';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import ListingForm from '@/components/properties/ListingForm';
 

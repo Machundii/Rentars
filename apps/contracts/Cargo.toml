@@ -1,26 +1,11 @@
 [workspace]
 members = [
-    ".",
-    "contracts/property-listing",
-    "contracts/booking",
+    "contracts/rental-contract",
     "contracts/review-contract",
 ]
 resolver = "2"
 
-[package]
-name = "rentars-contracts"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-soroban-sdk = { version = "26.0.1", features = ["alloc"] }
-
-[dev-dependencies]
-soroban-sdk = { version = "26.0.1", features = ["testutils"] }
-
+# Shared release profile applied to all workspace members
 [profile.release]
 opt-level = "z"
 overflow-checks = true

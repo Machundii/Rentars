@@ -1,6 +1,6 @@
 'use client';
 
-import BookingCard from './components/BookingCard';
+import BookingCard from '@/app/dashboard/tenant-dashboard/components/BookingCard';
 
 interface BookingHistoryProps {
   bookings: Array<{
@@ -19,8 +19,8 @@ interface BookingHistoryProps {
 export default function BookingHistory({ bookings }: BookingHistoryProps) {
   if (bookings.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-8 text-center">
-        <p className="text-gray-500">No bookings yet. Start exploring properties!</p>
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 p-8 text-center">
+        <p className="text-gray-500 dark:text-gray-400">No bookings yet. Start exploring properties!</p>
       </div>
     );
   }
