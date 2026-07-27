@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import {
+  cancelBooking,
+  confirmBooking,
   createBooking,
   deleteBooking,
   getBooking,
@@ -24,8 +26,20 @@ router.get('/', authenticate, listUserBookings);
 // GET /api/v1/bookings/:id
 router.get('/:id', authenticate, getBooking);
 
+// GET /api/v1/bookings/:id/calendar.ics
+router.get('/:id/calendar.ics', authenticate, getBookingCalendar);
+
+// GET /api/v1/bookings/:id/receipt.pdf
+router.get('/:id/receipt.pdf', authenticate, getBookingReceipt);
+
 // POST /api/v1/bookings  (requires email verification)
 router.post('/', authenticate, requireEmailVerified, bookingRateLimiter, validateBody(createBookingSchema), createBooking);
+
+// POST /api/v1/bookings/:id/confirm
+router.post('/:id/confirm', authenticate, confirmBooking);
+
+// POST /api/v1/bookings/:id/cancel
+router.post('/:id/cancel', authenticate, cancelBooking);
 
 // PATCH /api/v1/bookings/:id
 router.patch('/:id', authenticate, validateBody(updateBookingSchema), updateBooking);

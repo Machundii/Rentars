@@ -63,6 +63,7 @@ async function runEscrowReconciliation(): Promise<void> {
 }
 
 export function startSyncScheduler(): void {
+  // Blockchain sync
   setInterval(() => {
     runSync().catch((err) => console.error('[sync] Scheduler error:', err));
   }, SYNC_INTERVAL_MS);

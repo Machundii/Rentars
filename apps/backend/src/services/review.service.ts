@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase.js';
+import * as cache from './cache.service.js';
 import type { ServiceResponse } from './index.js';
 import { sanitizeLongText, sanitizeResponse } from '../utils/sanitize.js';
 
@@ -79,6 +80,11 @@ export async function submitReview(
 
   if (error) {
     return { success: false, error: error.message };
+  }
+
+  // Invalidate the property detail cache so the updated rating aggregate is reflected.
+  if (propertyId) {
+    await cache.del(`property:${propertyId}`);
   }
 
   return { success: true, data: data as Review };

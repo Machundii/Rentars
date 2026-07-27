@@ -343,6 +343,7 @@ export class BookingService {
         undefined,
         String(err),
       );
+      incCounter(escrowFailuresTotal, { operation: 'create_escrow' });
       return {
         success: false,
         error: `Failed to create escrow: ${String(err)}`,
@@ -384,6 +385,7 @@ export class BookingService {
     createNotification(tenant_id, 'booking_created', { booking_id: booking.id, property_id }).catch(
       () => {},
     );
+    incCounter(bookingsCreatedTotal, { property_id });
 
     // 7. Create on-chain booking record (non-fatal on failure)
     if (prop.on_chain_id !== undefined && prop.on_chain_id !== null) {

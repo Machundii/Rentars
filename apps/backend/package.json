@@ -11,6 +11,7 @@
     "test": "bun test --coverage",
     "test:unit": "bun test tests/unit --coverage",
     "test:integration": "bun test tests/integration --coverage",
+    "test:e2e": "bun test tests/integration/booking-e2e.test.ts",
     "test:rls": "bun test tests/rls --coverage",
     "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-dir=./coverage",
     "test:api": "bash tests/api/simple.test.sh && bash tests/api/endpoints.test.sh && bash tests/api/profile.test.sh",

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 interface FilterSidebarProps {
@@ -20,17 +20,8 @@ export interface FilterState {
 }
 
 const AMENITIES = [
-  'WiFi',
-  'Kitchen',
-  'Parking',
-  'Pool',
-  'Gym',
-  'Washer',
-  'Dryer',
-  'AC',
-  'Heating',
-  'TV',
-  'Balcony',
+  'WiFi', 'Kitchen', 'Parking', 'Pool', 'Gym',
+  'Washer', 'Dryer', 'AC', 'Heating', 'TV', 'Balcony',
 ];
 const PROPERTY_TYPES = ['Apartment', 'House', 'Villa', 'Condo', 'Studio'];
 const SORT_OPTIONS = [
@@ -42,6 +33,8 @@ const SORT_OPTIONS = [
 ];
 
 export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
+  const id = useId();
+
   const [filters, setFilters] = useState<FilterState>({
     priceMin: 0,
     priceMax: 1000,
@@ -66,50 +59,62 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const handlePriceChange = (key: 'priceMin' | 'priceMax', value: number) => {
-    const newFilters = { ...filters, [key]: value };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
+  const update = (patch: Partial<FilterState>) => {
+    const next = { ...filters, ...patch };
+    setFilters(next);
+    onFilterChange(next);
   };
 
-  const handleAmenityToggle = (amenity: string) => {
-    const newAmenities = filters.amenities.includes(amenity)
-      ? filters.amenities.filter((a) => a !== amenity)
-      : [...filters.amenities, amenity];
-    const newFilters = { ...filters, amenities: newAmenities };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
-  };
+  // ── Section toggle button ─────────────────────────────────────────────────
 
-  const handleGuestsChange = (guests: number) => {
-    const newFilters = { ...filters, guests };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
-  };
+  function SectionHeader({
+    section,
+    label,
+  }: {
+    section: keyof typeof expandedSections;
+    label: string;
+  }) {
+    const panelId = `${id}-panel-${section}`;
+    const btnId = `${id}-btn-${section}`;
+    const isOpen = expandedSections[section];
+    return (
+      <button
+        id={btnId}
+        type="button"
+        aria-expanded={isOpen}
+        aria-controls={panelId}
+        onClick={() => toggleSection(section)}
+        className="flex items-center justify-between w-full font-semibold mb-4
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
+      >
+        {label}
+        <ChevronDown
+          size={20}
+          aria-hidden="true"
+          className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+        />
+      </button>
+    );
+  }
 
-  const handleBedroomsChange = (bedrooms: number | undefined) => {
-    const newFilters = { ...filters, bedrooms };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
-  };
+  // ── Shared panel wrapper ──────────────────────────────────────────────────
 
-  const handlePropertyTypeChange = (type: string) => {
-    const newFilters = { ...filters, propertyType: type };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
-  };
-
-  const handleSortChange = (sortBy: FilterState['sortBy']) => {
-    const newFilters = { ...filters, sortBy };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
-  };
-
-  const handleDateChange = (key: 'checkIn' | 'checkOut', value: string) => {
-    const newFilters = { ...filters, [key]: value };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
-  };
+  function Panel({
+    section,
+    children,
+  }: {
+    section: keyof typeof expandedSections;
+    children: React.ReactNode;
+  }) {
+    const panelId = `${id}-panel-${section}`;
+    const btnId = `${id}-btn-${section}`;
+    if (!expandedSections[section]) return null;
+    return (
+      <div id={panelId} role="region" aria-labelledby={btnId}>
+        {children}
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6 space-y-6 h-fit sticky top-8">
@@ -132,18 +137,19 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
                 <input
                   type="radio"
                   name="sortBy"
+                  value={option.value}
                   checked={filters.sortBy === option.value}
-                  onChange={() => handleSortChange(option.value as any)}
-                  className="rounded-full"
+                  onChange={() => update({ sortBy: option.value as FilterState['sortBy'] })}
+                  className="rounded-full focus:ring-2 focus:ring-ring focus:ring-offset-1"
                 />
                 <span className="text-sm text-gray-700 dark:text-gray-300">{option.label}</span>
               </label>
             ))}
           </div>
-        )}
+        </Panel>
       </div>
 
-      {/* Price Range */}
+      {/* Price Range --------------------------------------------------------- */}
       <div>
         <button
           onClick={() => toggleSection('price')}
@@ -160,30 +166,40 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
             <div>
               <label className="text-sm text-gray-600 dark:text-gray-400">Min: ${filters.priceMin}</label>
               <input
+                id={`${id}-price-min`}
                 type="range"
                 min="0"
                 max="1000"
                 value={filters.priceMin}
-                onChange={(e) => handlePriceChange('priceMin', Number(e.target.value))}
-                className="w-full"
+                onChange={(e) => update({ priceMin: Number(e.target.value) })}
+                aria-valuemin={0}
+                aria-valuemax={1000}
+                aria-valuenow={filters.priceMin}
+                aria-valuetext={`$${filters.priceMin}`}
+                className="w-full accent-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
               />
             </div>
             <div>
               <label className="text-sm text-gray-600 dark:text-gray-400">Max: ${filters.priceMax}</label>
               <input
+                id={`${id}-price-max`}
                 type="range"
                 min="0"
                 max="1000"
                 value={filters.priceMax}
-                onChange={(e) => handlePriceChange('priceMax', Number(e.target.value))}
-                className="w-full"
+                onChange={(e) => update({ priceMax: Number(e.target.value) })}
+                aria-valuemin={0}
+                aria-valuemax={1000}
+                aria-valuenow={filters.priceMax}
+                aria-valuetext={`$${filters.priceMax}`}
+                className="w-full accent-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
               />
             </div>
           </div>
-        )}
+        </Panel>
       </div>
 
-      {/* Bedrooms */}
+      {/* Bedrooms ------------------------------------------------------------ */}
       <div>
         <button
           onClick={() => toggleSection('bedrooms')}
@@ -211,10 +227,10 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
               </button>
             ))}
           </div>
-        )}
+        </Panel>
       </div>
 
-      {/* Amenities */}
+      {/* Amenities ----------------------------------------------------------- */}
       <div>
         <button
           onClick={() => toggleSection('amenities')}
@@ -233,17 +249,22 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
                 <input
                   type="checkbox"
                   checked={filters.amenities.includes(amenity)}
-                  onChange={() => handleAmenityToggle(amenity)}
-                  className="rounded"
+                  onChange={() => {
+                    const next = filters.amenities.includes(amenity)
+                      ? filters.amenities.filter((a) => a !== amenity)
+                      : [...filters.amenities, amenity];
+                    update({ amenities: next });
+                  }}
+                  className="rounded focus:ring-2 focus:ring-ring focus:ring-offset-1"
                 />
                 <span className="text-sm text-gray-700 dark:text-gray-300">{amenity}</span>
               </label>
             ))}
           </div>
-        )}
+        </Panel>
       </div>
 
-      {/* Guests */}
+      {/* Guests -------------------------------------------------------------- */}
       <div>
         <button
           onClick={() => toggleSection('guests')}
@@ -271,10 +292,10 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
               </button>
             ))}
           </div>
-        )}
+        </Panel>
       </div>
 
-      {/* Property Type */}
+      {/* Property Type ------------------------------------------------------- */}
       <div>
         <button
           onClick={() => toggleSection('type')}
@@ -293,18 +314,19 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
                 <input
                   type="radio"
                   name="propertyType"
+                  value={type}
                   checked={filters.propertyType === type}
-                  onChange={() => handlePropertyTypeChange(type)}
-                  className="rounded-full"
+                  onChange={() => update({ propertyType: type })}
+                  className="rounded-full focus:ring-2 focus:ring-ring focus:ring-offset-1"
                 />
                 <span className="text-sm text-gray-700 dark:text-gray-300">{type}</span>
               </label>
             ))}
           </div>
-        )}
+        </Panel>
       </div>
 
-      {/* Dates */}
+      {/* Dates --------------------------------------------------------------- */}
       <div>
         <button
           onClick={() => toggleSection('dates')}
@@ -321,6 +343,7 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
             <div>
               <label className="text-sm text-gray-600 dark:text-gray-400">Check In</label>
               <input
+                id={`${id}-check-in`}
                 type="date"
                 value={filters.checkIn || ''}
                 onChange={(e) => handleDateChange('checkIn', e.target.value)}
@@ -330,6 +353,7 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
             <div>
               <label className="text-sm text-gray-600 dark:text-gray-400">Check Out</label>
               <input
+                id={`${id}-check-out`}
                 type="date"
                 value={filters.checkOut || ''}
                 onChange={(e) => handleDateChange('checkOut', e.target.value)}
@@ -337,7 +361,7 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
               />
             </div>
           </div>
-        )}
+        </Panel>
       </div>
     </div>
   );

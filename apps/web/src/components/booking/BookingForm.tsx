@@ -253,6 +253,7 @@ export default function BookingForm({
               : 'border-gray-300 dark:border-gray-600'
           }`}
           aria-describedby={guestError ? 'guest-error' : undefined}
+          aria-invalid={!!guestError}
         />
         {guestError && (
           <p id="guest-error" className="mt-1 text-sm text-red-600 dark:text-red-400 flex items-center gap-1">

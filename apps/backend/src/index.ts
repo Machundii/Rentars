@@ -1,5 +1,14 @@
+/**
+ * Application entry point.
+ *
+ * dotenv is loaded before anything else so env vars are available when
+ * config/env.ts runs its startup validation.  If any required variables are
+ * missing or invalid, env.ts calls process.exit(1) with a full error report.
+ */
+
+import 'dotenv/config'; // must be first import
+import { env } from './config/env.js';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import express from 'express';
 import { errorMiddleware } from './middleware/error.middleware';
 import { rateLimiter } from './middleware/rateLimiter';
@@ -16,6 +25,8 @@ dotenv.config();
 
 export const app = express();
 
+// ── Core middleware ───────────────────────────────────────────────────────────
+
 app.use(express.json());
 app.use(
   cors({
@@ -23,29 +34,23 @@ app.use(
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-  })
+  }),
 );
 app.use(rateLimiter);
 app.use(timeoutMiddleware);
 app.use(requestLoggingMiddleware);
 
-// Routes
-app.use('/auth', authRoutes);
-app.use('/api/bookings', bookingRoutes);
-app.use('/api/properties', propertyRoutes);
-app.use('/api/locations', locationRoutes);
-app.use('/api/reviews', reviewRoutes);
-app.use('/api/wishlists', wishlistRoutes);
-app.use('/api/notifications', notificationRoutes);
+// ── Metrics (must be before routes to record all requests) ────────────────────
+app.use(metricsMiddleware);
+app.use(metricsRouter);
 
-// Health check
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'Rentars API 🚀' });
-});
+// ── Application routes ────────────────────────────────────────────────────────
+app.use(routes);
 
-// OpenAPI docs
+// ── OpenAPI docs ──────────────────────────────────────────────────────────────
 setupOpenApiRoutes(app);
 
+// ── Error handling ────────────────────────────────────────────────────────────
 app.use(errorMiddleware);
 
 const configErrors = validateBlockchainConfig();

@@ -13,6 +13,7 @@ import PropertyList from './components/PropertyList';
 import EarningsTrendChart from './components/EarningsTrendChart';
 import ComparativeGrowth from './components/ComparativeGrowth';
 import OccupancyInsights from './components/OccupancyInsights';
+import OccupancyHeatmap from './components/OccupancyHeatmap';
 import ExportReportButton from './components/ExportReportButton';
 import { mockHostData } from './mockData';
 
@@ -29,6 +30,13 @@ export default function HostDashboard() {
     setShowAddProperty(false);
     // API call would go here
   };
+
+  // Shape mockData.properties into the minimal { id, title } form the heatmap expects.
+  // In production these would come from the real API; mock ids are strings.
+  const heatmapProperties = mockHostData.properties.map((p) => ({
+    id:    p.id,
+    title: p.title,
+  }));
 
   return (
     <main className="min-h-screen bg-gray-50 py-8">
@@ -48,7 +56,7 @@ export default function HostDashboard() {
               onClick={() => setShowAddProperty(true)}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition"
             >
-              <Plus size={20} />
+              <Plus size={20} aria-hidden="true" />
               Add Property
             </button>
           </div>
@@ -70,6 +78,11 @@ export default function HostDashboard() {
           <ComparativeGrowth metrics={mockHostData.monthlyMetrics} />
           <OccupancyInsights occupancy={mockHostData.occupancy} />
         </div>
+
+        {/* Occupancy heatmap — host-only; the API enforces the ownership gate */}
+        {heatmapProperties.length > 0 && (
+          <OccupancyHeatmap properties={heatmapProperties} />
+        )}
 
         {/* Properties */}
         <PropertyList properties={mockHostData.properties} />
