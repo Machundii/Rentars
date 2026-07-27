@@ -38,6 +38,18 @@ const ERROR_STATUS_MAP: Record<string, number> = {
   // Property errors
   UNAUTHORIZED_OWNER: 403,
   INVALID_PROPERTY_DATA: 400,
+
+  // Validation errors
+  VALIDATION_ERROR: 400,
+  MISSING_REQUIRED_FIELD: 400,
+  INVALID_DATE_FORMAT: 400,
+
+  // Rate limit errors
+  RATE_LIMITED: 429,
+
+  // Infrastructure / timeout
+  REQUEST_TIMEOUT: 504,
+  INTERNAL_SERVER_ERROR: 500,
 };
 
 export function errorMiddleware(
@@ -47,6 +59,12 @@ export function errorMiddleware(
   _next: NextFunction,
 ): void {
   console.error(err.stack);
+
+  // Guard: do not write a second response if the timeout middleware already
+  // responded (res.locals.timedOut) or if headers were sent by any other path.
+  if (res.headersSent) {
+    return;
+  }
 
   if (isDomainError(err)) {
     const domainErr = err as DomainError;

@@ -112,17 +112,17 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
   };
 
   return (
-    <div className="bg-white rounded-lg border p-6 space-y-6 h-fit sticky top-8">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6 space-y-6 h-fit sticky top-8">
       {/* Sort */}
       <div>
         <button
           onClick={() => toggleSection('sort')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
         >
           Sort By
           <ChevronDown
             size={20}
-            className={`transition ${expandedSections.sort ? 'rotate-180' : ''}`}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.sort ? 'rotate-180' : ''}`}
           />
         </button>
         {expandedSections.sort && (
@@ -136,7 +136,7 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
                   onChange={() => handleSortChange(option.value as any)}
                   className="rounded-full"
                 />
-                <span className="text-sm">{option.label}</span>
+                <span className="text-sm text-gray-700 dark:text-gray-300">{option.label}</span>
               </label>
             ))}
           </div>
@@ -147,18 +147,18 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
       <div>
         <button
           onClick={() => toggleSection('price')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
         >
           Price Range
           <ChevronDown
             size={20}
-            className={`transition ${expandedSections.price ? 'rotate-180' : ''}`}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.price ? 'rotate-180' : ''}`}
           />
         </button>
         {expandedSections.price && (
           <div className="space-y-4">
             <div>
-              <label className="text-sm text-gray-600">Min: ${filters.priceMin}</label>
+              <label className="text-sm text-gray-600 dark:text-gray-400">Min: ${filters.priceMin}</label>
               <input
                 type="range"
                 min="0"
@@ -169,7 +169,7 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600">Max: ${filters.priceMax}</label>
+              <label className="text-sm text-gray-600 dark:text-gray-400">Max: ${filters.priceMax}</label>
               <input
                 type="range"
                 min="0"
@@ -187,12 +187,12 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
       <div>
         <button
           onClick={() => toggleSection('bedrooms')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
         >
           Bedrooms
           <ChevronDown
             size={20}
-            className={`transition ${expandedSections.bedrooms ? 'rotate-180' : ''}`}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.bedrooms ? 'rotate-180' : ''}`}
           />
         </button>
         {expandedSections.bedrooms && (
@@ -204,7 +204,7 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
                 className={`px-3 py-2 rounded border transition text-sm ${
                   filters.bedrooms === num
                     ? 'bg-blue-600 text-white border-blue-600'
-                    : 'border-gray-300 hover:border-gray-400'
+                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500'
                 }`}
               >
                 {num}
@@ -218,12 +218,12 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
       <div>
         <button
           onClick={() => toggleSection('amenities')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
         >
           Amenities
           <ChevronDown
             size={20}
-            className={`transition ${expandedSections.amenities ? 'rotate-180' : ''}`}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.amenities ? 'rotate-180' : ''}`}
           />
         </button>
         {expandedSections.amenities && (
@@ -236,7 +236,7 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
                   onChange={() => handleAmenityToggle(amenity)}
                   className="rounded"
                 />
-                <span className="text-sm">{amenity}</span>
+                <span className="text-sm text-gray-700 dark:text-gray-300">{amenity}</span>
               </label>
             ))}
           </div>
@@ -247,12 +247,12 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
       <div>
         <button
           onClick={() => toggleSection('guests')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
         >
           Guests
           <ChevronDown
             size={20}
-            className={`transition ${expandedSections.guests ? 'rotate-180' : ''}`}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.guests ? 'rotate-180' : ''}`}
           />
         </button>
         {expandedSections.guests && (
@@ -264,7 +264,7 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
                 className={`px-3 py-2 rounded border transition text-sm ${
                   filters.guests === num
                     ? 'bg-blue-600 text-white border-blue-600'
-                    : 'border-gray-300 hover:border-gray-400'
+                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500'
                 }`}
               >
                 {num}
@@ -278,12 +278,12 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
       <div>
         <button
           onClick={() => toggleSection('type')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
         >
           Property Type
           <ChevronDown
             size={20}
-            className={`transition ${expandedSections.type ? 'rotate-180' : ''}`}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.type ? 'rotate-180' : ''}`}
           />
         </button>
         {expandedSections.type && (
@@ -297,7 +297,7 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
                   onChange={() => handlePropertyTypeChange(type)}
                   className="rounded-full"
                 />
-                <span className="text-sm">{type}</span>
+                <span className="text-sm text-gray-700 dark:text-gray-300">{type}</span>
               </label>
             ))}
           </div>
@@ -308,32 +308,32 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
       <div>
         <button
           onClick={() => toggleSection('dates')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
+          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
         >
           Dates
           <ChevronDown
             size={20}
-            className={`transition ${expandedSections.dates ? 'rotate-180' : ''}`}
+            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.dates ? 'rotate-180' : ''}`}
           />
         </button>
         {expandedSections.dates && (
           <div className="space-y-3">
             <div>
-              <label className="text-sm text-gray-600">Check In</label>
+              <label className="text-sm text-gray-600 dark:text-gray-400">Check In</label>
               <input
                 type="date"
                 value={filters.checkIn || ''}
                 onChange={(e) => handleDateChange('checkIn', e.target.value)}
-                className="w-full border rounded px-2 py-1 text-sm"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600">Check Out</label>
+              <label className="text-sm text-gray-600 dark:text-gray-400">Check Out</label>
               <input
                 type="date"
                 value={filters.checkOut || ''}
                 onChange={(e) => handleDateChange('checkOut', e.target.value)}
-                className="w-full border rounded px-2 py-1 text-sm"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               />
             </div>
           </div>

@@ -129,33 +129,33 @@ export default function BookingPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gray-50 py-8">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 py-8">
       <div className="max-w-2xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">{t('title')}</h1>
-        <p className="text-gray-600 mb-8">{t('subtitle')}</p>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">{t('title')}</h1>
+        <p className="text-gray-600 dark:text-gray-400 mb-8">{t('subtitle')}</p>
 
         {/* Wallet Status Card */}
         <div className="mb-6">
           {walletConnected && walletAddress ? (
-            <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start gap-3 p-4 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
               <CheckCircle2 size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-green-900">{t('walletConnected')}</p>
-                <p className="text-xs text-green-700 mt-1 font-mono break-all">{walletAddress}</p>
+                <p className="text-sm font-medium text-green-900 dark:text-green-200">{t('walletConnected')}</p>
+                <p className="text-xs text-green-700 dark:text-green-400 mt-1 font-mono break-all">{walletAddress}</p>
                 <button
                   onClick={handleWalletDisconnect}
-                  className="text-xs text-green-600 hover:text-green-700 mt-2 underline"
+                  className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 mt-2 underline"
                 >
                   {t('disconnect')}
                 </button>
               </div>
             </div>
           ) : (
-            <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg">
               <AlertCircle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
               <div className="min-w-0">
-                <p className="text-sm font-medium text-amber-900">{t('walletNotConnected')}</p>
-                <p className="text-xs text-amber-700 mt-1">{t('walletNote')}</p>
+                <p className="text-sm font-medium text-amber-900 dark:text-amber-200">{t('walletNotConnected')}</p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">{t('walletNote')}</p>
               </div>
             </div>
           )}

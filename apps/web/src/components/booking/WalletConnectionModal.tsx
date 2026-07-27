@@ -98,16 +98,16 @@ export default function WalletConnectionModal({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-lg max-w-md w-full">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg max-w-md w-full">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b">
-          <h2 className="text-lg font-semibold text-gray-900">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
             {connectedAddress ? 'Wallet Connected' : 'Connect Your Wallet'}
           </h2>
           <button
             onClick={handleClose}
             disabled={status === 'connecting'}
-            className="text-gray-400 hover:text-gray-600 disabled:opacity-50 transition"
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-50 transition"
             aria-label="Close modal"
           >
             <X size={20} />
@@ -118,28 +118,28 @@ export default function WalletConnectionModal({
         <div className="p-6 space-y-4">
           {/* Status Messages */}
           {status === 'success' && connectedAddress && (
-            <div className="flex items-start gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start gap-3 p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
               <CheckCircle2 size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
               <div className="min-w-0">
-                <p className="text-sm font-medium text-green-900">Wallet Connected</p>
-                <p className="text-xs text-green-700 mt-1 break-all font-mono">{connectedAddress}</p>
+                <p className="text-sm font-medium text-green-900 dark:text-green-200">Wallet Connected</p>
+                <p className="text-xs text-green-700 dark:text-green-400 mt-1 break-all font-mono">{connectedAddress}</p>
               </div>
             </div>
           )}
 
           {status === 'error' && error && (
-            <div className="flex items-start gap-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
               <AlertCircle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
               <div className="min-w-0">
-                <p className="text-sm font-medium text-red-900">Connection Failed</p>
-                <p className="text-sm text-red-700 mt-1">{error}</p>
+                <p className="text-sm font-medium text-red-900 dark:text-red-200">Connection Failed</p>
+                <p className="text-sm text-red-700 dark:text-red-400 mt-1">{error}</p>
               </div>
             </div>
           )}
 
           {/* Main Description */}
           {!connectedAddress && status !== 'error' && (
-            <p className="text-gray-600 text-sm">
+            <p className="text-gray-600 dark:text-gray-400 text-sm">
               Connect your Stellar wallet to complete this booking. Your USDC will be held in escrow
               until the rental is confirmed.
             </p>
@@ -161,7 +161,7 @@ export default function WalletConnectionModal({
           {connectedAddress && status === 'success' && (
             <button
               onClick={handleDisconnect}
-              className="w-full bg-red-50 hover:bg-red-100 text-red-700 font-medium py-2 px-4 rounded-lg transition border border-red-200"
+              className="w-full bg-red-50 dark:bg-red-950 hover:bg-red-100 dark:hover:bg-red-900 text-red-700 dark:text-red-300 font-medium py-2 px-4 rounded-lg transition border border-red-200 dark:border-red-800"
             >
               Disconnect Wallet
             </button>
@@ -179,13 +179,13 @@ export default function WalletConnectionModal({
 
           {/* Info */}
           {!connectedAddress && (
-            <p className="text-xs text-gray-500 text-center">
+            <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
               Don't have Freighter?{' '}
               <a
                 href="https://www.freighter.app"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 hover:underline font-medium"
+                className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
               >
                 Install it here
               </a>
@@ -193,9 +193,9 @@ export default function WalletConnectionModal({
           )}
 
           {/* Network Info */}
-          <div className="pt-2 border-t">
-            <p className="text-xs text-gray-500 text-center">
-              Connected to <span className="font-medium text-gray-700">Stellar Testnet</span>
+          <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+            <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+              Connected to <span className="font-medium text-gray-700 dark:text-gray-300">Stellar Testnet</span>
             </p>
           </div>
         </div>

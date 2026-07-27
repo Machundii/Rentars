@@ -15,6 +15,8 @@ const envSchema = z.object({
   TRUSTLESS_WORK_API_URL: z.string().url().optional(),
   TRUSTLESS_WORK_API_KEY: z.string().optional(),
   GEOCODING_API_KEY: z.string().optional(),
+  REQUEST_TIMEOUT_MS: z.string().optional().transform((v) => (v ? Number(v) : undefined)),
+  REQUEST_TIMEOUT_UPLOAD_MS: z.string().optional().transform((v) => (v ? Number(v) : undefined)),
 });
 
 export type Environment = z.infer<typeof envSchema>;
