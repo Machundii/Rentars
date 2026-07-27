@@ -153,3 +153,44 @@ export async function getEstimatedNetworkFeeInUSDC(): Promise<number> {
     return Number(BASE_FEE) / 10_000_000;
   }
 }
+
+export type TransactionStatus = 'pending' | 'success' | 'failed' | 'not_found';
+
+export interface TransactionStatusResult {
+  status: TransactionStatus;
+  response?: rpc.Api.GetTransactionResponse;
+}
+
+/**
+ * Poll transaction status from the Stellar RPC.
+ * Returns the transaction status and response if confirmed.
+ *
+ * @param server - Soroban RPC server instance
+ * @param txHash - Transaction hash to poll
+ * @returns Transaction status and response (if confirmed)
+ */
+export async function getTransactionStatus(
+  server: rpc.Server,
+  txHash: string,
+): Promise<TransactionStatusResult> {
+  try {
+    const response = await server.getTransaction(txHash);
+
+    if (response.status === rpc.Api.GetTransactionStatus.NOT_FOUND) {
+      return { status: 'pending' };
+    }
+
+    if (response.status === rpc.Api.GetTransactionStatus.FAILED) {
+      return { status: 'failed', response };
+    }
+
+    if (response.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+      return { status: 'success', response };
+    }
+
+    return { status: 'pending' };
+  } catch (err) {
+    console.error(`[transaction-status] Failed to get status for ${txHash}: ${(err as Error).message}`);
+    return { status: 'failed' };
+  }
+}
