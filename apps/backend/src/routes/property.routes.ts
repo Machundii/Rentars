@@ -23,6 +23,10 @@ import {
   addAvailabilityBlock,
   removeAvailabilityBlock,
 } from '@/controllers/availability.controller.js';
+import {
+  previewPropertyPricing,
+  getPropertyQuoteHandler,
+} from '@/controllers/calendar.controller.js';
 import { authenticate } from '@/middleware/auth.middleware.js';
 import { requireEmailVerified } from '@/middleware/emailVerified.middleware.js';
 import { upload } from '@/middleware/multer.js';
@@ -44,6 +48,12 @@ router.get('/search/suggestions', searchSuggestionsHandler);
 
 // GET /api/v1/properties/search/trending - Trending searches
 router.get('/search/trending', trendingSearchesHandler);
+
+// GET /api/v1/properties/:id/quote?start=&end=  — itemized price quote (public)
+router.get('/:id/quote', getPropertyQuoteHandler);
+
+// GET /api/v1/properties/:id/pricing/preview?start=&end=  — host-only pricing preview
+router.get('/:id/pricing/preview', authenticate, previewPropertyPricing);
 
 // GET /api/v1/properties/:id
 router.get('/:id', getProperty);

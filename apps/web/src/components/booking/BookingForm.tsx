@@ -15,9 +15,15 @@ interface BookingFormProps {
   isLoading?: boolean;
 }
 
-interface PricingBreakdown {
+interface PriceQuote {
+  base_nightly_rate: number;
+  nights: number;
+  subtotal: number;
+  dynamic_adjustments: number;
+  platform_fee_pct: number;
+  platform_fee: number;
   total: number;
-  breakdown: Array<{ date: string; price: number; is_available: boolean }>;
+  breakdown: Array<{ date: string; price: number; is_available: boolean; reason?: string }>;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -33,7 +39,7 @@ export default function BookingForm({
   const [guestCount, setGuestCount] = useState(1);
   const [dateError, setDateError] = useState('');
   const [guestError, setGuestError] = useState('');
-  const [pricing, setPricing] = useState<PricingBreakdown | null>(null);
+  const [pricing, setPricing] = useState<PriceQuote | null>(null);
   const [availabilityError, setAvailabilityError] = useState('');
 
   const t = useTranslations('booking');
@@ -46,7 +52,7 @@ export default function BookingForm({
     const fetchPricing = async () => {
       try {
         const res = await fetch(
-          `${API_URL}/api/v1/calendar/${propertyId}/price?checkIn=${checkIn}&checkOut=${checkOut}`,
+          `${API_URL}/api/v1/properties/${propertyId}/quote?start=${checkIn}&end=${checkOut}`,
         );
 
         if (res.ok) {
@@ -228,13 +234,39 @@ export default function BookingForm({
               {pricing.breakdown.map((day) => (
                 <div key={day.date} className="flex justify-between text-gray-600">
                   <span>{day.date}</span>
-                  <span>{formatCurrency(day.price, locale)} USDC</span>
+                  <span>
+                    {day.is_available
+                      ? `${formatCurrency(day.price, locale)} USDC`
+                      : day.reason ?? 'Unavailable'}
+                  </span>
                 </div>
               ))}
             </div>
           )}
+          <div className="space-y-1 text-sm text-gray-600">
+            <div className="flex justify-between">
+              <span>
+                {formatCurrency(pricing.base_nightly_rate, locale)} &times; {pricing.nights}{' '}
+                {pricing.nights === 1 ? 'night' : 'nights'}
+              </span>
+              <span>{formatCurrency(pricing.subtotal, locale)} USDC</span>
+            </div>
+            {pricing.dynamic_adjustments !== 0 && (
+              <div className="flex justify-between">
+                <span>Dynamic pricing</span>
+                <span>
+                  {pricing.dynamic_adjustments > 0 ? '+' : ''}
+                  {formatCurrency(pricing.dynamic_adjustments, locale)} USDC
+                </span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span>Platform fee ({(pricing.platform_fee_pct * 100).toFixed(0)}%)</span>
+              <span>{formatCurrency(pricing.platform_fee, locale)} USDC</span>
+            </div>
+          </div>
           <div className="border-t pt-2 flex justify-between font-semibold">
-            <span>{t('totalNights', { count: nights })}</span>
+            <span>Total</span>
             <span className="text-blue-600">{formatCurrency(pricing.total, locale)} USDC</span>
           </div>
         </div>

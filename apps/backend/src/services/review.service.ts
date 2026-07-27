@@ -36,13 +36,28 @@ export async function submitReview(
   // Verify booking belongs to reviewer
   const { data: booking, error: bookingError } = await supabase
     .from('bookings')
-    .select('id, status')
+    .select('id, status, check_out')
     .eq('id', bookingId)
     .eq('tenant_id', reviewerId)
     .single();
 
   if (bookingError || !booking) {
     return { success: false, error: 'Booking not found or not owned by reviewer' };
+  }
+
+  const b = booking as { id: string; status: string; check_out: string };
+
+  if (b.status === 'Cancelled') {
+    return { success: false, error: 'Cannot review a cancelled booking' };
+  }
+  if (b.status === 'Disputed') {
+    return { success: false, error: 'Cannot review a disputed booking' };
+  }
+  if (b.status !== 'Completed') {
+    return { success: false, error: 'Can only review after the stay is completed' };
+  }
+  if (new Date(b.check_out) >= new Date()) {
+    return { success: false, error: 'Cannot review before the checkout date has passed' };
   }
 
   const { data, error } = await supabase
@@ -101,26 +116,45 @@ export async function getAverageRating(userId: string): Promise<ServiceResponse<
   return { success: true, data: Math.round(avg * 10) / 10 };
 }
 
+const MAX_HOST_RESPONSE_LENGTH = 1000;
+
 export async function addHostResponse(
   reviewId: string,
   hostId: string,
   response: string,
 ): Promise<ServiceResponse<Review>> {
-  // Verify host owns the property that was reviewed
+  if (response.trim().length > MAX_HOST_RESPONSE_LENGTH) {
+    return {
+      success: false,
+      error: `Response must be at most ${MAX_HOST_RESPONSE_LENGTH} characters`,
+    };
+  }
+
   const { data: review, error: reviewError } = await supabase
     .from('reviews')
-    .select('id, target_id, host_response')
+    .select('id, target_id, property_id')
     .eq('id', reviewId)
     .single();
 
   if (reviewError || !review) {
     return { success: false, error: 'Review not found' };
   }
-  if (review.target_id !== hostId) {
+
+  const r = review as { id: string; target_id: string; property_id: string | null };
+
+  // Verify host owns the reviewed property; fall back to target_id check when no property
+  if (r.property_id) {
+    const { data: property } = await supabase
+      .from('properties')
+      .select('owner_id')
+      .eq('id', r.property_id)
+      .single();
+
+    if (!property || (property as { owner_id: string }).owner_id !== hostId) {
+      return { success: false, error: 'Only the property owner can respond to this review' };
+    }
+  } else if (r.target_id !== hostId) {
     return { success: false, error: 'Only the reviewed host can respond' };
-  }
-  if (review.host_response) {
-    return { success: false, error: 'Response already submitted' };
   }
 
   // Sanitize host response; enforce max 2000 chars
