@@ -20,7 +20,8 @@ import {
   getAvailabilityRanges,
   setAvailabilityRanges,
 } from '@/services/availability.service.js';
-import { trackSearch, getSearchSuggestions, getTrendingSearches } from '@/services/searchAnalytics.service.js';
+import { trackSearch, getSearchSuggestions, getTrendingSearches, trackSuggestionEvent } from '@/services/searchAnalytics.service.js';
+import { computeZeroResultSuggestions } from '@/services/propertySearch.service.js';
 import { supabase } from '@/config/supabase.js';
 import { redactExactCoordinates } from '@/utils/locationPrivacy.js';
 import type { AuthRequest } from '@/middleware/auth.middleware.js';
@@ -234,12 +235,22 @@ export async function advancedSearchHandler(req: Request, res: Response): Promis
     return;
   }
 
-  await trackSearch(filters.query || '', result.data.length, undefined, filters);
+  const viewerId = (req as AuthRequest).userId;
+  await trackSearch(filters.query || '', result.data.length, viewerId, filters);
 
   // Search results are always public — redact coordinates
   const redacted = result.data.map((p) =>
     redactExactCoordinates(p as { id: string; latitude?: number; longitude?: number }) as unknown as Record<string, unknown>,
   );
+
+  if (redacted.length === 0) {
+    const suggestions = await computeZeroResultSuggestions(filters);
+    if (suggestions.length > 0) {
+      trackSuggestionEvent('offered', suggestions.map((s) => s.type).join(','), filters.query, viewerId).catch(() => {});
+    }
+    res.json({ data: redacted, count: 0, page: filters.page, _suggestions: suggestions });
+    return;
+  }
 
   res.json({ data: redacted, count: redacted.length, page: filters.page });
 }
@@ -263,6 +274,23 @@ export async function trendingSearchesHandler(_req: Request, res: Response): Pro
     return;
   }
   res.json(result.data);
+}
+
+/**
+ * POST /api/v1/properties/search/suggestion-accepted
+ *
+ * Called by the UI when a user clicks a zero-result relaxed-filter suggestion.
+ * Body: { suggestion_type, original_query? }
+ */
+export async function trackSuggestionAcceptedHandler(req: Request, res: Response): Promise<void> {
+  const { suggestion_type, original_query } = req.body ?? {};
+  if (!suggestion_type || typeof suggestion_type !== 'string') {
+    res.status(400).json({ error: 'suggestion_type is required' });
+    return;
+  }
+  const viewerId = (req as AuthRequest).userId;
+  trackSuggestionEvent('accepted', suggestion_type, original_query, viewerId).catch(() => {});
+  res.status(204).send();
 }
 
 // ─── Availability ─────────────────────────────────────────────────────────────

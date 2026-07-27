@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { rateLimitStore } from '@/services/rateLimitStore.service.js';
 import { setFeatured, clearFeatured, FEATURED_CAP } from '@/services/property.service.js';
+import { getTopQueries, getZeroResultQueries, getDailySearchVolume } from '@/services/searchAnalytics.service.js';
 import { z } from 'zod';
 
 // ─── Featured listings ────────────────────────────────────────────────────────
@@ -102,6 +103,105 @@ export async function clearFeaturedHandler(req: Request, res: Response): Promise
     data: result.data,
     meta: { message: 'Featured status removed.' },
   });
+}
+
+// ─── Search analytics dashboard ──────────────────────────────────────────────
+
+const analyticsQuerySchema = z.object({
+  start_date: z.string().datetime({ message: 'start_date must be a valid ISO 8601 datetime' }),
+  end_date: z.string().datetime({ message: 'end_date must be a valid ISO 8601 datetime' }),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+/**
+ * GET /api/v1/admin/analytics/search/top-queries
+ *
+ * Returns the most frequently searched terms within a date range.
+ *
+ * Query params: start_date (ISO datetime), end_date (ISO datetime), limit (default 20, max 100)
+ */
+export async function getTopQueriesHandler(req: Request, res: Response): Promise<void> {
+  const parsed = analyticsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid parameters', details: parsed.error.flatten().fieldErrors });
+    return;
+  }
+
+  const { start_date, end_date, limit } = parsed.data;
+
+  if (new Date(end_date) <= new Date(start_date)) {
+    res.status(400).json({ error: 'end_date must be after start_date' });
+    return;
+  }
+
+  const result = await getTopQueries(start_date, end_date, limit);
+  if (!result.success) {
+    res.status(500).json({ error: result.error });
+    return;
+  }
+
+  res.json({ data: result.data, meta: { start_date, end_date, limit } });
+}
+
+/**
+ * GET /api/v1/admin/analytics/search/zero-results
+ *
+ * Returns the most frequently searched terms that yielded zero results.
+ *
+ * Query params: start_date (ISO datetime), end_date (ISO datetime), limit (default 20, max 100)
+ */
+export async function getZeroResultQueriesHandler(req: Request, res: Response): Promise<void> {
+  const parsed = analyticsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid parameters', details: parsed.error.flatten().fieldErrors });
+    return;
+  }
+
+  const { start_date, end_date, limit } = parsed.data;
+
+  if (new Date(end_date) <= new Date(start_date)) {
+    res.status(400).json({ error: 'end_date must be after start_date' });
+    return;
+  }
+
+  const result = await getZeroResultQueries(start_date, end_date, limit);
+  if (!result.success) {
+    res.status(500).json({ error: result.error });
+    return;
+  }
+
+  res.json({ data: result.data, meta: { start_date, end_date, limit } });
+}
+
+/**
+ * GET /api/v1/admin/analytics/search/volume
+ *
+ * Returns daily search volume within a date range.
+ *
+ * Query params: start_date (ISO datetime), end_date (ISO datetime)
+ */
+export async function getSearchVolumeHandler(req: Request, res: Response): Promise<void> {
+  const schema = analyticsQuerySchema.omit({ limit: true });
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid parameters', details: parsed.error.flatten().fieldErrors });
+    return;
+  }
+
+  const { start_date, end_date } = parsed.data;
+
+  if (new Date(end_date) <= new Date(start_date)) {
+    res.status(400).json({ error: 'end_date must be after start_date' });
+    return;
+  }
+
+  const result = await getDailySearchVolume(start_date, end_date);
+  if (!result.success) {
+    res.status(500).json({ error: result.error });
+    return;
+  }
+
+  res.json({ data: result.data, meta: { start_date, end_date } });
 }
 
 // ─── Rate-limit summary ───────────────────────────────────────────────────────

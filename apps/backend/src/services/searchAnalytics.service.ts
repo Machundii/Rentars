@@ -16,6 +16,17 @@ export interface SearchSuggestion {
   result_count?: number;
 }
 
+export interface TopQuery {
+  query: string;
+  frequency: number;
+  avg_results?: number;
+}
+
+export interface DailyVolume {
+  date: string;
+  count: number;
+}
+
 /**
  * Track a search query for analytics and suggestions.
  */
@@ -65,6 +76,75 @@ export async function getSearchSuggestions(
   }
 
   return { success: true, data: (data ?? []) as SearchSuggestion[] };
+}
+
+/**
+ * Top queries by frequency over a date range. Index-backed via idx_search_analytics_created_at.
+ */
+export async function getTopQueries(
+  startDate: string,
+  endDate: string,
+  limit = 20,
+): Promise<ServiceResponse<TopQuery[]>> {
+  const { data, error } = await supabase.rpc('get_top_queries', {
+    p_start_date: startDate,
+    p_end_date: endDate,
+    p_limit: limit,
+  });
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: (data ?? []) as TopQuery[] };
+}
+
+/**
+ * Zero-result queries by frequency over a date range. Index-backed via idx_search_analytics_zero_result.
+ */
+export async function getZeroResultQueries(
+  startDate: string,
+  endDate: string,
+  limit = 20,
+): Promise<ServiceResponse<TopQuery[]>> {
+  const { data, error } = await supabase.rpc('get_zero_result_queries', {
+    p_start_date: startDate,
+    p_end_date: endDate,
+    p_limit: limit,
+  });
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: (data ?? []) as TopQuery[] };
+}
+
+/**
+ * Daily search volume over a date range.
+ */
+export async function getDailySearchVolume(
+  startDate: string,
+  endDate: string,
+): Promise<ServiceResponse<DailyVolume[]>> {
+  const { data, error } = await supabase.rpc('get_daily_search_volume', {
+    p_start_date: startDate,
+    p_end_date: endDate,
+  });
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: (data ?? []) as DailyVolume[] };
+}
+
+/**
+ * Record that relaxed-filter suggestions were offered or accepted.
+ */
+export async function trackSuggestionEvent(
+  eventType: 'offered' | 'accepted',
+  suggestionType: string,
+  originalQuery?: string,
+  userId?: string,
+): Promise<void> {
+  await supabase.from('search_suggestion_events').insert({
+    event_type: eventType,
+    suggestion_type: suggestionType,
+    original_query: originalQuery,
+    user_id: userId,
+  });
 }
 
 /**
