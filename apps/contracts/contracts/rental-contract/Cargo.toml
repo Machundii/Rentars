@@ -1,5 +1,5 @@
 [package]
-name = "rentars-review-contract"
+name = "rentars-rental-contract"
 version = "0.1.0"
 edition = "2021"
 
