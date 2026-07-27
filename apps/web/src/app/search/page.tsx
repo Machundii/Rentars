@@ -152,17 +152,18 @@ export default function SearchPage() {
           </div>
 
           <div className="col-span-3">
-            {isLoading && <p className="text-gray-400">{t('loading')}</p>}
-            {apiError && <p className="text-red-500">{apiError}</p>}
-
-            {!isLoading && properties.length === 0 && (
-              <p className="text-gray-500">{t('noResults')}</p>
-            )}
-            {!isLoading && properties.length > 0 && (
-              <div onMouseLeave={() => setActivePropertyId(undefined)}>
-                <PropertyGrid properties={properties} />
-              </div>
-            )}
+            <div onMouseLeave={() => setActivePropertyId(undefined)}>
+              <PropertyGrid
+                properties={properties}
+                loading={isLoading}
+                error={apiError}
+                onRetry={() => {
+                  if (q) {
+                    handleSearch(q);
+                  }
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>

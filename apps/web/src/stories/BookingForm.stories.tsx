@@ -21,3 +21,11 @@ export const Default: Story = {
 export const Loading: Story = {
   args: { ...Default.args, isLoading: true },
 };
+
+export const WithGuestLimit: Story = {
+  args: { ...Default.args, maxGuests: 4 },
+};
+
+export const WithStayLimits: Story = {
+  args: { ...Default.args, minStay: 3, maxStay: 14 },
+};

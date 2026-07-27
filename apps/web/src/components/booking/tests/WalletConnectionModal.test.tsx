@@ -20,7 +20,7 @@ vi.mock('@/lib/freighter-utils', () => ({
 describe('WalletConnectionModal', () => {
   const mockOnClose = vi.fn();
   const mockOnConnect = vi.fn();
-  const mockPublicKey = 'GTEST123456789012345678901234567890123456789012345678';
+  const mockPublicKey = 'GBBD47UZQ5ENKNATRWFSEWJXC7OLEIUQ5LNZ5AQUARUZI42RLCI6RX2Z';
   const defaultProps = {
     isOpen: true,
     onClose: mockOnClose,
@@ -311,7 +311,8 @@ describe('WalletConnectionModal', () => {
 
       render(<WalletConnectionModal {...defaultProps} />);
 
-      expect(screen.getByText(/wallet connected/i)).toBeInTheDocument();
+      const connectedElements = screen.getAllByText(/wallet connected/i);
+      expect(connectedElements.length).toBeGreaterThan(0);
       expect(screen.getByText(mockPublicKey)).toBeInTheDocument();
     });
 

@@ -34,7 +34,7 @@ function RuleItem({
       ) : (
         <XCircle size={18} className="text-red-400 flex-shrink-0" aria-hidden="true" />
       )}
-      <span className="text-sm text-gray-700">{label}</span>
+      <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
     </li>
   );
 }
@@ -69,11 +69,11 @@ export default function HouseRulesAcknowledgement({
 
   return (
     <div
-      className="bg-amber-50 border border-amber-200 rounded-lg p-5 space-y-4"
+      className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg p-5 space-y-4"
       data-testid="house-rules-acknowledgement"
     >
-      <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-        <AlertCircle size={18} className="text-amber-600" aria-hidden="true" />
+      <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+        <AlertCircle size={18} className="text-amber-600 dark:text-amber-400" aria-hidden="true" />
         House rules — please read before booking
       </h3>
 
@@ -99,7 +99,7 @@ export default function HouseRulesAcknowledgement({
         {rules.quiet_hours_start && rules.quiet_hours_end && (
           <li className="flex items-center gap-3">
             <Clock size={18} className="text-blue-500 flex-shrink-0" aria-hidden="true" />
-            <span className="text-sm text-gray-700">
+            <span className="text-sm text-gray-700 dark:text-gray-300">
               Quiet hours: {rules.quiet_hours_start} – {rules.quiet_hours_end}
             </span>
           </li>
@@ -107,9 +107,9 @@ export default function HouseRulesAcknowledgement({
       </ul>
 
       {rules.additional_rules && (
-        <div className="bg-white rounded border border-amber-100 px-4 py-3">
-          <p className="text-xs font-semibold text-gray-600 mb-1">Additional rules</p>
-          <p className="text-sm text-gray-700 whitespace-pre-line">{rules.additional_rules}</p>
+        <div className="bg-white dark:bg-gray-900 rounded border border-amber-100 dark:border-amber-900 px-4 py-3">
+          <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Additional rules</p>
+          <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">{rules.additional_rules}</p>
         </div>
       )}
 
@@ -119,12 +119,12 @@ export default function HouseRulesAcknowledgement({
           id="rules-acknowledge"
           checked={checked}
           onChange={handleChange}
-          className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          className="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
           aria-describedby="rules-acknowledge-label"
         />
         <span
           id="rules-acknowledge-label"
-          className="text-sm text-gray-700"
+          className="text-sm text-gray-700 dark:text-gray-300"
         >
           I have read and agree to the house rules above
         </span>
