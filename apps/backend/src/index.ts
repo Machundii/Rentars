@@ -8,6 +8,7 @@ import bookingRoutes from './routes/booking.routes';
 import propertyRoutes from './routes/property.routes';
 import locationRoutes from './routes/location.routes';
 import { setupOpenApiRoutes } from './config/swagger';
+import { retryDependencyConnections } from './utils/retry';
 
 dotenv.config();
 
@@ -45,7 +46,55 @@ setupOpenApiRoutes(app);
 app.use(errorMiddleware);
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
-app.listen(PORT, () => {
-  console.log(`🚀 Rentars API running on http://localhost:${PORT}`);
-  startSyncScheduler();
+const GRACE_SHUTDOWN_TIMEOUT = parseInt(
+  process.env.GRACE_SHUTDOWN_TIMEOUT_MS || '30000',
+  10
+);
+
+async function startServer(): Promise<void> {
+  // Retry dependency connections with exponential backoff
+  await retryDependencyConnections();
+
+  const server = app.listen(PORT, () => {
+    console.log(`🚀 Rentars API running on http://localhost:${PORT}`);
+    startSyncScheduler();
+  });
+
+  // Graceful shutdown handlers
+  const shutdownSignals = ['SIGTERM', 'SIGINT'];
+
+  function gracefulShutdown(signal: string): void {
+    console.log(`\n[Shutdown] Received ${signal}, starting graceful shutdown...`);
+
+    server.close(() => {
+      console.log('[Shutdown] HTTP server closed');
+      process.exit(0);
+    });
+
+    const shutdownTimer = setTimeout(() => {
+      console.error('[Shutdown] Forced shutdown after timeout');
+      process.exit(1);
+    }, GRACE_SHUTDOWN_TIMEOUT);
+
+    shutdownTimer.unref();
+  }
+
+  shutdownSignals.forEach((signal) => {
+    process.on(signal, () => gracefulShutdown(signal));
+  });
+
+  process.on('uncaughtException', (error) => {
+    console.error('[Error] Uncaught exception:', error);
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('[Error] Unhandled rejection at', promise, 'reason:', reason);
+    process.exit(1);
+  });
+}
+
+startServer().catch((error) => {
+  console.error('[Startup] Fatal error:', error);
+  process.exit(1);
 });
