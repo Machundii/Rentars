@@ -61,13 +61,25 @@ export class AuthError extends Error {
   }
 }
 
-export type DomainError = BookingError | EscrowError | PropertyError | AuthError;
+export class ValidationError extends Error {
+  constructor(
+    public message: string,
+    public fields: Record<string, string[]> = {},
+  ) {
+    super(message);
+    this.name = 'ValidationError';
+    Object.setPrototypeOf(this, ValidationError.prototype);
+  }
+}
+
+export type DomainError = BookingError | EscrowError | PropertyError | AuthError | ValidationError;
 
 export function isDomainError(error: unknown): error is DomainError {
   return (
     error instanceof BookingError ||
     error instanceof EscrowError ||
     error instanceof PropertyError ||
-    error instanceof AuthError
+    error instanceof AuthError ||
+    error instanceof ValidationError
   );
 }

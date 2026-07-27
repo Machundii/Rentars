@@ -9,6 +9,7 @@
 import { z } from 'zod';
 import type { NextFunction, Request, Response } from 'express';
 import { CANONICAL_AMENITIES } from '@/types/amenities.js';
+import { ValidationError } from '@/types/errors.js';
 
 // Re-export the canonical list so consumers can use either import path.
 export { CANONICAL_AMENITIES as ALLOWED_AMENITIES } from '@/types/amenities.js';
@@ -131,13 +132,17 @@ export function validateBody<T extends z.ZodTypeAny>(schema: T) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
-      res.status(422).json({
-        error: 'Validation failed',
-        details: result.error.errors.map((e) => ({
-          field: e.path.join('.'),
-          message: e.message,
-        })),
+      const fields: Record<string, string[]> = {};
+      result.error.errors.forEach((error) => {
+        const field = error.path.join('.');
+        if (!fields[field]) {
+          fields[field] = [];
+        }
+        fields[field].push(error.message);
       });
+
+      const validationError = new ValidationError('Validation failed', fields);
+      next(validationError);
       return;
     }
     // Replace req.body with the parsed (sanitised + defaulted) value
@@ -148,19 +153,23 @@ export function validateBody<T extends z.ZodTypeAny>(schema: T) {
 
 /**
  * Returns an Express middleware that validates `req.query` against the given
- * Zod schema. On failure it responds 422 with a structured errors array.
+ * Zod schema. On failure it throws a ValidationError that is caught by error middleware.
  */
 export function validateQuery<T extends z.ZodTypeAny>(schema: T) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const result = schema.safeParse(req.query);
     if (!result.success) {
-      res.status(422).json({
-        error: 'Validation failed',
-        details: result.error.errors.map((e) => ({
-          field: e.path.join('.'),
-          message: e.message,
-        })),
+      const fields: Record<string, string[]> = {};
+      result.error.errors.forEach((error) => {
+        const field = error.path.join('.');
+        if (!fields[field]) {
+          fields[field] = [];
+        }
+        fields[field].push(error.message);
       });
+
+      const validationError = new ValidationError('Validation failed', fields);
+      next(validationError);
       return;
     }
     // Attach parsed query so controllers get typed, coerced values

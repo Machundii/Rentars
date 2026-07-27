@@ -4,6 +4,7 @@
 
 import { z } from 'zod';
 import type { NextFunction, Request, Response } from 'express';
+import { ValidationError } from '@/types/errors.js';
 
 // ─── Create booking schema ────────────────────────────────────────────────────
 
@@ -66,13 +67,17 @@ export function validateBody<T extends z.ZodTypeAny>(schema: T) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
-      res.status(422).json({
-        error: 'Validation failed',
-        details: result.error.errors.map((e) => ({
-          field: e.path.join('.'),
-          message: e.message,
-        })),
+      const fields: Record<string, string[]> = {};
+      result.error.errors.forEach((error) => {
+        const field = error.path.join('.');
+        if (!fields[field]) {
+          fields[field] = [];
+        }
+        fields[field].push(error.message);
       });
+
+      const validationError = new ValidationError('Validation failed', fields);
+      next(validationError);
       return;
     }
     req.body = result.data;
