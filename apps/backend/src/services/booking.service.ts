@@ -15,6 +15,8 @@ import {
 import { trustlessWorkClient } from '@/blockchain/trustlessWork.js';
 import { loggingService } from './logging.service.js';
 import { createNotification } from './notification.service.js';
+import { decodeCursor, buildCursorPage } from '../utils/cursor.js';
+import type { CursorPaginatedResult } from './notification.service.js';
 import type { ServiceResponse } from './index.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -119,6 +121,55 @@ export class BookingService {
     }
 
     return { success: true, data: data as Booking };
+  }
+
+  /**
+   * List bookings for a user (as tenant) using cursor-based pagination.
+   *
+   * Sort key: (created_at DESC, id DESC) — stable under concurrent inserts.
+   * When cursor is omitted the first page is returned. Pass the returned
+   * nextCursor as the cursor param to fetch the next page.
+   *
+   * @param userId  - UUID of the tenant
+   * @param cursor  - Opaque pagination cursor (omit for first page)
+   * @param limit   - Page size (1–100, default 20)
+   */
+  async getUserBookings(
+    userId: string,
+    cursor?: string | null,
+    limit = 20,
+  ): Promise<ServiceResponse<CursorPaginatedResult<Booking>>> {
+    if (!userId) {
+      return { success: false, error: 'User ID is required' };
+    }
+
+    const pageSize = Math.min(Math.max(1, limit), 100);
+    const decoded = decodeCursor(cursor);
+
+    let query = supabase
+      .from('bookings')
+      .select('*')
+      .eq('tenant_id', userId)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(pageSize + 1);
+
+    if (decoded) {
+      query = query.or(
+        `created_at.lt.${decoded.created_at},and(created_at.eq.${decoded.created_at},id.lt.${decoded.id})`,
+      );
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    const rows = (data ?? []) as Booking[];
+    const page = buildCursorPage(rows, pageSize);
+
+    return { success: true, data: page };
   }
 
   // ── Create ─────────────────────────────────────────────────────────────────
@@ -292,6 +343,7 @@ export class BookingService {
         undefined,
         String(err),
       );
+      incCounter(escrowFailuresTotal, { operation: 'create_escrow' });
       return {
         success: false,
         error: `Failed to create escrow: ${String(err)}`,
@@ -333,6 +385,7 @@ export class BookingService {
     createNotification(tenant_id, 'booking_created', { booking_id: booking.id, property_id }).catch(
       () => {},
     );
+    incCounter(bookingsCreatedTotal, { property_id });
 
     // 7. Create on-chain booking record (non-fatal on failure)
     if (prop.on_chain_id !== undefined && prop.on_chain_id !== null) {

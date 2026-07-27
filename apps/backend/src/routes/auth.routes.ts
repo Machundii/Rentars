@@ -11,17 +11,18 @@ import {
   validateBody,
 } from '@/validators/auth.validator.js';
 import { authRateLimiter } from '@/middleware/rateLimiter.js';
+import { captchaMiddleware } from '@/middleware/captcha.middleware.js';
 
 const router = Router();
 
-// POST /api/v1/auth/register
-router.post('/register', authRateLimiter, validateBody(registerSchema), register);
+// POST /api/v1/auth/register — CAPTCHA required
+router.post('/register', authRateLimiter, validateBody(registerSchema), captchaMiddleware, register);
 
-// POST /api/v1/auth/login
-router.post('/login', authRateLimiter, validateBody(loginSchema), login);
+// POST /api/v1/auth/login — CAPTCHA required
+router.post('/login', authRateLimiter, validateBody(loginSchema), captchaMiddleware, login);
 
-// POST /api/v1/auth/password-reset/request
-router.post('/password-reset/request', authRateLimiter, validateBody(requestPasswordResetSchema), requestReset);
+// POST /api/v1/auth/password-reset/request — CAPTCHA required
+router.post('/password-reset/request', authRateLimiter, validateBody(requestPasswordResetSchema), captchaMiddleware, requestReset);
 
 // POST /api/v1/auth/password-reset/confirm
 router.post('/password-reset/confirm', authRateLimiter, validateBody(confirmPasswordResetSchema), confirmReset);

@@ -2,7 +2,7 @@
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, token::TokenClient, vec, Address, Env, MuxedAddress,
-    String, Vec,
+    String, Vec, Symbol,
 };
 
 use property_listing::{ListingStatus, PropertyListingContractClient};
@@ -205,6 +205,19 @@ impl BookingContract {
 
         listing_client.set_rented(&property_id);
 
+        env.events().publish(
+            ("booking", Symbol::short("booked")),
+            (
+                ("booking_id", id),
+                ("property_id", property_id),
+                ("tenant", tenant),
+                ("property_owner", listing.owner),
+                ("check_in", check_in),
+                ("check_out", check_out),
+                ("total_price", total_price),
+            ),
+        );
+
         id
     }
 
@@ -259,6 +272,16 @@ impl BookingContract {
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Booking(booking_id), TTL_MIN, TTL_EXTEND_TO);
+
+        env.events().publish(
+            ("booking", Symbol::short("cancelled")),
+            (
+                ("booking_id", booking_id),
+                ("property_id", booking.property_id),
+                ("tenant", booking.tenant),
+                ("property_owner", booking.property_owner),
+            ),
+        );
     }
 
     pub fn update_status(
@@ -321,13 +344,31 @@ impl BookingContract {
             }
         }
 
-        booking.status = new_status;
+        booking.status = new_status.clone();
         env.storage()
             .persistent()
             .set(&DataKey::Booking(booking_id), &booking);
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Booking(booking_id), TTL_MIN, TTL_EXTEND_TO);
+
+        let event_name = match new_status {
+            BookingStatus::Confirmed => Symbol::short("confirmed"),
+            BookingStatus::Completed => Symbol::short("completed"),
+            BookingStatus::Cancelled => Symbol::short("cancelled"),
+            BookingStatus::Disputed => Symbol::short("disputed"),
+            _ => Symbol::short("unknown"),
+        };
+
+        env.events().publish(
+            ("booking", event_name),
+            (
+                ("booking_id", booking_id),
+                ("property_id", booking.property_id),
+                ("tenant", booking.tenant),
+                ("property_owner", booking.property_owner),
+            ),
+        );
     }
 
     pub fn set_escrow_id(
@@ -404,6 +445,16 @@ impl BookingContract {
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Booking(booking_id), TTL_MIN, TTL_EXTEND_TO);
+
+        env.events().publish(
+            ("booking", Symbol::short("escrow_funded")),
+            (
+                ("booking_id", booking_id),
+                ("property_id", booking.property_id),
+                ("tenant", tenant),
+                ("amount", booking.total_price),
+            ),
+        );
     }
 
     /// Dispute a funded booking. Only the tenant may start a dispute.
@@ -437,6 +488,16 @@ impl BookingContract {
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Booking(booking_id), TTL_MIN, TTL_EXTEND_TO);
+
+        env.events().publish(
+            ("booking", Symbol::short("disputed")),
+            (
+                ("booking_id", booking_id),
+                ("property_id", booking.property_id),
+                ("tenant", tenant),
+                ("property_owner", booking.property_owner),
+            ),
+        );
     }
 
     /// Resolve a disputed booking. Admin decides whether to release escrowed

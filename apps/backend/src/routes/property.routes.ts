@@ -9,6 +9,9 @@ import {
   advancedSearchHandler,
   searchSuggestionsHandler,
   trendingSearchesHandler,
+  recordViewHandler,
+  getViewStatsHandler,
+  getOccupancyHeatmapHandler,
 } from '@/controllers/property.controller.js';
 import { searchPropertiesEndpoint, searchNearbyEndpoint } from '@/controllers/propertySearch.controller.js';
 import {
@@ -23,6 +26,10 @@ import {
   addAvailabilityBlock,
   removeAvailabilityBlock,
 } from '@/controllers/availability.controller.js';
+import {
+  previewPropertyPricing,
+  getPropertyQuoteHandler,
+} from '@/controllers/calendar.controller.js';
 import { authenticate } from '@/middleware/auth.middleware.js';
 import { requireEmailVerified } from '@/middleware/emailVerified.middleware.js';
 import { upload } from '@/middleware/multer.js';
@@ -45,8 +52,23 @@ router.get('/search/suggestions', searchSuggestionsHandler);
 // GET /api/v1/properties/search/trending - Trending searches
 router.get('/search/trending', trendingSearchesHandler);
 
+// GET /api/v1/properties/:id/quote?start=&end=  — itemized price quote (public)
+router.get('/:id/quote', getPropertyQuoteHandler);
+
+// GET /api/v1/properties/:id/pricing/preview?start=&end=  — host-only pricing preview
+router.get('/:id/pricing/preview', authenticate, previewPropertyPricing);
+
 // GET /api/v1/properties/:id
 router.get('/:id', getProperty);
+
+// POST /api/v1/properties/:id/view  (anonymous-friendly, no auth required)
+router.post('/:id/view', recordViewHandler);
+
+// GET /api/v1/properties/:id/views  (host-only stats)
+router.get('/:id/views', authenticate, getViewStatsHandler);
+
+// GET /api/v1/properties/:id/occupancy-heatmap  (host-only)
+router.get('/:id/occupancy-heatmap', authenticate, getOccupancyHeatmapHandler);
 
 // POST /api/v1/properties  (requires email verification)
 router.post('/', authenticate, requireEmailVerified, createPropertyHandler);

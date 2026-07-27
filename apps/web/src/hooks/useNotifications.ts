@@ -1,7 +1,7 @@
 'use client';
 
 import { createClient } from '@supabase/supabase-js';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 const API_BASE = `${API_URL}/api/v1/notifications`;
@@ -24,29 +24,99 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export function useNotifications(userId?: string) {
+/**
+ * useNotifications — provides cursor-based infinite-scroll pagination.
+ *
+ * On mount, the first page is fetched automatically. Call `loadMore()` to
+ * append the next page. Real-time inserts/updates/deletes from Supabase
+ * Realtime are merged into the in-memory list.
+ *
+ * The legacy flat-array behaviour (no cursor) is preserved when the optional
+ * `pageSize` prop is omitted — in that case `loadMore` is a no-op.
+ */
+export function useNotifications(userId?: string, pageSize = 20) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
 
-  const fetchNotifications = useCallback(async () => {
-    const token = getToken();
-    if (!token) {
-      setIsLoading(false);
-      return;
-    }
+  // Track the initial fetch so we don't double-fire
+  const initialFetched = useRef(false);
 
-    try {
-      const res = await fetch(API_BASE, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) setNotifications(await res.json());
-    } catch {}
-    setIsLoading(false);
-  }, []);
+  /** Fetch a page of notifications. When cursor is null, fetches the first page. */
+  const fetchPage = useCallback(
+    async (cursor: string | null, isFirst: boolean) => {
+      const token = getToken();
+      if (!token) {
+        if (isFirst) setIsLoading(false);
+        return;
+      }
 
+      if (isFirst) setIsLoading(true);
+      else setIsLoadingMore(true);
+
+      try {
+        const params = new URLSearchParams({ limit: String(pageSize) });
+        if (cursor) params.set('cursor', cursor);
+
+        const res = await fetch(`${API_BASE}?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (res.ok) {
+          const body = await res.json();
+
+          // Cursor response: { data: [...], nextCursor: string|null }
+          // Legacy response (flat array): backward-compat path
+          if (Array.isArray(body)) {
+            setNotifications(body as AppNotification[]);
+            setNextCursor(null);
+            setHasMore(false);
+          } else {
+            const pageData = body as { data: AppNotification[]; nextCursor: string | null };
+            if (isFirst) {
+              setNotifications(pageData.data);
+            } else {
+              // Append, deduplicating by id
+              setNotifications((prev) => {
+                const existingIds = new Set(prev.map((n) => n.id));
+                const fresh = pageData.data.filter((n) => !existingIds.has(n.id));
+                return [...prev, ...fresh];
+              });
+            }
+            setNextCursor(pageData.nextCursor);
+            setHasMore(pageData.nextCursor !== null);
+          }
+        }
+      } catch {
+        // Silently ignore network errors; existing state is preserved
+      } finally {
+        if (isFirst) setIsLoading(false);
+        else setIsLoadingMore(false);
+      }
+    },
+    [pageSize],
+  );
+
+  /** Load the first page on mount. */
   useEffect(() => {
-    fetchNotifications();
-  }, [fetchNotifications]);
+    if (initialFetched.current) return;
+    initialFetched.current = true;
+    fetchPage(null, true);
+  }, [fetchPage]);
+
+  /** Load the next page (appends to list). */
+  const loadMore = useCallback(() => {
+    if (!hasMore || isLoadingMore) return;
+    fetchPage(nextCursor, false);
+  }, [hasMore, isLoadingMore, nextCursor, fetchPage]);
+
+  /** Refetch from the first page (e.g. after a pull-to-refresh). */
+  const refetch = useCallback(() => {
+    initialFetched.current = false;
+    fetchPage(null, true);
+  }, [fetchPage]);
 
   // Real-time subscription via Supabase Realtime (WebSocket)
   useEffect(() => {
@@ -68,8 +138,14 @@ export function useNotifications(userId?: string) {
           filter: `user_id=eq.${userId}`,
         },
         (payload) => {
-          setNotifications((prev) => [payload.new as AppNotification, ...prev]);
-        }
+          // Prepend new notifications at the top
+          setNotifications((prev) => {
+            const incoming = payload.new as AppNotification;
+            // Avoid duplicates from optimistic updates
+            if (prev.some((n) => n.id === incoming.id)) return prev;
+            return [incoming, ...prev];
+          });
+        },
       )
       .on(
         'postgres_changes',
@@ -82,10 +158,10 @@ export function useNotifications(userId?: string) {
         (payload) => {
           setNotifications((prev) =>
             prev.map((n) =>
-              n.id === (payload.new as AppNotification).id ? (payload.new as AppNotification) : n
-            )
+              n.id === (payload.new as AppNotification).id ? (payload.new as AppNotification) : n,
+            ),
           );
-        }
+        },
       )
       .on(
         'postgres_changes',
@@ -97,9 +173,9 @@ export function useNotifications(userId?: string) {
         },
         (payload) => {
           setNotifications((prev) =>
-            prev.filter((n) => n.id !== (payload.old as AppNotification).id)
+            prev.filter((n) => n.id !== (payload.old as AppNotification).id),
           );
-        }
+        },
       )
       .subscribe();
 
@@ -146,10 +222,13 @@ export function useNotifications(userId?: string) {
   return {
     notifications,
     isLoading,
+    isLoadingMore,
+    hasMore,
     unreadCount,
     markRead,
     markAllRead,
     removeNotification,
-    refetch: fetchNotifications,
+    loadMore,
+    refetch,
   };
 }

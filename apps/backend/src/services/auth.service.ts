@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { Keypair, TransactionBuilder, Networks, BASE_FEE } from '@stellar/stellar-sdk';
 import { supabase } from '@/config/supabase.js';
+import { env } from '@/config/env.js';
 import { AuthError, AuthErrorCode } from '@/types/errors.js';
 import { emailService } from './email.service.js';
 import type { ServiceResponse } from './index.js';
@@ -131,7 +132,7 @@ export async function loginUser(
 
   const token = jwt.sign(
     { userId: data.user.id },
-    process.env.JWT_SECRET || 'secret',
+    env.JWT_SECRET,
     { expiresIn: '7d' },
   );
 
@@ -292,7 +293,7 @@ export async function verifyWalletChallenge(
   // Issue JWT
   const token = jwt.sign(
     { userId: userData.id },
-    process.env.JWT_SECRET || 'secret',
+    env.JWT_SECRET,
     { expiresIn: '7d' },
   );
 

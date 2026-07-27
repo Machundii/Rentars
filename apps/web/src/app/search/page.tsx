@@ -84,7 +84,7 @@ export default function SearchPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main id="main-content" className="min-h-screen bg-gray-50">
       <header className="bg-white border-b px-6 py-4">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-2xl font-bold mb-4">{t('title')}</h1>
@@ -152,17 +152,18 @@ export default function SearchPage() {
           </div>
 
           <div className="col-span-3">
-            {isLoading && <p className="text-gray-400">{t('loading')}</p>}
-            {apiError && <p className="text-red-500">{apiError}</p>}
-
-            {!isLoading && properties.length === 0 && (
-              <p className="text-gray-500">{t('noResults')}</p>
-            )}
-            {!isLoading && properties.length > 0 && (
-              <div onMouseLeave={() => setActivePropertyId(undefined)}>
-                <PropertyGrid properties={properties} />
-              </div>
-            )}
+            <div onMouseLeave={() => setActivePropertyId(undefined)}>
+              <PropertyGrid
+                properties={properties}
+                loading={isLoading}
+                error={apiError}
+                onRetry={() => {
+                  if (q) {
+                    handleSearch(q);
+                  }
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>

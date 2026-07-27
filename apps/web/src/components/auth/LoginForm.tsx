@@ -3,15 +3,22 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginInput } from '@/validations/auth.schema';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Mail, Lock, Loader } from 'lucide-react';
+import { HCaptcha } from './HCaptcha';
 
 interface LoginFormProps {
-  onSubmit: (data: LoginInput) => Promise<void>;
+  onSubmit: (data: LoginInput & { captchaToken: string }) => Promise<void>;
 }
 
 export function LoginForm({ onSubmit }: LoginFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string>('');
+  const [captchaError, setCaptchaError] = useState<string>('');
+
+  const captchaEnabled = process.env.NEXT_PUBLIC_HCAPTCHA_ENABLED !== 'false'
+    && !!process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY;
+
   const {
     register,
     handleSubmit,
@@ -20,10 +27,24 @@ export function LoginForm({ onSubmit }: LoginFormProps) {
     resolver: zodResolver(loginSchema),
   });
 
+  const onCaptchaVerify = useCallback((token: string) => {
+    setCaptchaToken(token);
+    setCaptchaError('');
+  }, []);
+
+  const onCaptchaExpire = useCallback(() => {
+    setCaptchaToken('');
+  }, []);
+
   const onSubmitHandler = async (data: LoginInput) => {
+    if (captchaEnabled && !captchaToken) {
+      setCaptchaError('Please complete the CAPTCHA challenge.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      await onSubmit(data);
+      await onSubmit({ ...data, captchaToken });
     } finally {
       setIsSubmitting(false);
     }
@@ -57,6 +78,11 @@ export function LoginForm({ onSubmit }: LoginFormProps) {
           />
         </div>
         {errors.password && <p className="text-red-500 text-sm mt-1">{errors.password.message}</p>}
+      </div>
+
+      <div>
+        <HCaptcha onVerify={onCaptchaVerify} onExpire={onCaptchaExpire} />
+        {captchaError && <p className="text-red-500 text-sm mt-1">{captchaError}</p>}
       </div>
 
       <button
