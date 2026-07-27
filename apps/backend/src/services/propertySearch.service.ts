@@ -1,6 +1,6 @@
 import { supabase } from '@/config/supabase.js';
 import type { ServiceResponse } from './index.js';
-import { isFeaturedNow, FEATURED_CAP, type Property } from './property.service.js';
+import { isFeaturedNow, FEATURED_CAP, type Property, type AdvancedSearchFilters } from './property.service.js';
 
 // ─── Nearby search ────────────────────────────────────────────────────────────
 
@@ -145,4 +145,111 @@ export async function searchPropertiesByQuery(
 
   // Promote featured listings to the top (capped at FEATURED_CAP).
   return { success: true, data: promoteFeatureToTop(sorted) };
+}
+
+// ─── Zero-result relaxed suggestions ──────────────────────────────────────────
+
+export interface ZeroResultSuggestion {
+  type: 'no_amenities' | 'wider_price' | 'expand_radius' | 'any_location';
+  description: string;
+  estimated_results: number;
+  relaxed_filters: Partial<AdvancedSearchFilters>;
+}
+
+/**
+ * When a search yields zero results, compute which single-filter relaxations
+ * would yield results and how many. Returns only relaxations that help.
+ */
+export async function computeZeroResultSuggestions(
+  filters: AdvancedSearchFilters,
+): Promise<ZeroResultSuggestion[]> {
+  const suggestions: ZeroResultSuggestion[] = [];
+
+  const countWithFilters = async (overrides: Partial<AdvancedSearchFilters>): Promise<number> => {
+    const merged = { ...filters, ...overrides };
+    let q = supabase
+      .from('properties')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'available');
+
+    if (merged.query) {
+      const tokens = merged.query
+        .toLowerCase()
+        .split(/\s+/)
+        .map((t) => t.replace(/[^a-z0-9_-]/g, ''))
+        .filter(Boolean);
+      if (tokens.length > 0) {
+        q = q.textSearch('search_vector', tokens.map((t) => `${t}:*`).join(' & '), {
+          config: 'english',
+        });
+      }
+    }
+
+    if (merged.city) q = q.ilike('city', `%${merged.city}%`);
+    if (merged.country) q = q.ilike('country', `%${merged.country}%`);
+    if (merged.min_price !== undefined) q = q.gte('price_per_night', merged.min_price);
+    if (merged.max_price !== undefined) q = q.lte('price_per_night', merged.max_price);
+    if (merged.bedrooms !== undefined) q = q.gte('bedrooms', merged.bedrooms);
+    if (merged.guests !== undefined) q = q.gte('max_guests', merged.guests);
+    if (merged.amenities && merged.amenities.length > 0) {
+      q = q.contains('amenities', merged.amenities);
+    }
+
+    const { count } = await q;
+    return count ?? 0;
+  };
+
+  const candidates: Array<{
+    type: ZeroResultSuggestion['type'];
+    description: string;
+    overrides: Partial<AdvancedSearchFilters>;
+  }> = [];
+
+  if (filters.amenities && filters.amenities.length > 0) {
+    candidates.push({
+      type: 'no_amenities',
+      description: 'Remove amenity filters',
+      overrides: { amenities: [] },
+    });
+  }
+
+  if (filters.min_price !== undefined || filters.max_price !== undefined) {
+    candidates.push({
+      type: 'wider_price',
+      description: 'Remove price range filter',
+      overrides: { min_price: undefined, max_price: undefined },
+    });
+  }
+
+  if (filters.radius_km !== undefined && filters.latitude !== undefined) {
+    candidates.push({
+      type: 'expand_radius',
+      description: `Expand search radius to ${(filters.radius_km ?? 50) * 2} km`,
+      overrides: { radius_km: (filters.radius_km ?? 50) * 2 },
+    });
+  }
+
+  if (filters.city || filters.country) {
+    candidates.push({
+      type: 'any_location',
+      description: 'Search all locations',
+      overrides: { city: undefined, country: undefined },
+    });
+  }
+
+  await Promise.all(
+    candidates.map(async (c) => {
+      const count = await countWithFilters(c.overrides);
+      if (count > 0) {
+        suggestions.push({
+          type: c.type,
+          description: c.description,
+          estimated_results: count,
+          relaxed_filters: c.overrides,
+        });
+      }
+    }),
+  );
+
+  return suggestions.sort((a, b) => b.estimated_results - a.estimated_results);
 }

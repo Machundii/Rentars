@@ -18,6 +18,11 @@ import { createNotification } from './notification.service.js';
 import { decodeCursor, buildCursorPage } from '../utils/cursor.js';
 import type { CursorPaginatedResult } from './notification.service.js';
 import type { ServiceResponse } from './index.js';
+import {
+  incCounter,
+  bookingsCreatedTotal,
+  escrowFailuresTotal,
+} from '@/middleware/metrics.middleware.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -271,7 +276,35 @@ export class BookingService {
       };
     }
 
-    // 4. Check on-chain availability
+    // 4. Atomically reserve the booking (conflict check + host-block check + INSERT).
+    //    This must happen before escrow so escrow is never created for a conflicting slot.
+    const { data: reservedId, error: reservationError } = await supabase.rpc(
+      'create_booking_atomic_v2',
+      {
+        p_property_id: property_id,
+        p_tenant_id: tenant_id,
+        p_check_in: check_in,
+        p_check_out: check_out,
+        p_total_price: total_price,
+        p_guest_count: guest_count,
+        p_rules_acknowledged_at: rules_acknowledged_at ?? null,
+      },
+    );
+
+    if (reservationError) {
+      const msg = reservationError.message ?? '';
+      if (msg.includes('BOOKING_CONFLICT')) {
+        return { success: false, error: 'Booking conflict: the requested dates overlap with an existing booking', conflict: true };
+      }
+      if (msg.includes('BOOKING_BLOCKED')) {
+        return { success: false, error: 'These dates are blocked by the host', conflict: true };
+      }
+      return { success: false, error: reservationError.message };
+    }
+
+    const bookingId = reservedId as string;
+
+    // 5. Check on-chain availability (advisory; non-blocking on error).
     if (prop.on_chain_id !== undefined && prop.on_chain_id !== null) {
       const checkInTs = BigInt(Math.floor(checkInDate.getTime() / 1000));
       const checkOutTs = BigInt(Math.floor(checkOutDate.getTime() / 1000));
@@ -289,6 +322,8 @@ export class BookingService {
         );
 
         if (!available) {
+          // Roll back the DB reservation
+          await supabase.from('bookings').delete().eq('id', bookingId);
           return {
             success: false,
             error: 'Property is not available for the requested dates',
@@ -297,10 +332,7 @@ export class BookingService {
       } catch (err) {
         loggingService.logBlockchainOperation(
           'checkAvailability',
-          {
-            propertyId: property_id,
-            userId: tenant_id,
-          },
+          { propertyId: property_id, userId: tenant_id },
           undefined,
           String(err),
         );
@@ -308,7 +340,7 @@ export class BookingService {
       }
     }
 
-    // 5. Create TrustlessWork escrow
+    // 6. Create TrustlessWork escrow (after local reservation succeeds).
     let escrowId: string | undefined;
 
     loggingService.logBlockchainOperation('createEscrow', {
@@ -319,7 +351,7 @@ export class BookingService {
     try {
       const escrowResponse = await trustlessWorkClient.createBookingEscrow({
         propertyId: property_id,
-        bookingId: '',
+        bookingId,
         buyerAddress: buyerStellarAddress,
         sellerAddress: ownerStellarAddress,
         amountUsdc: String(total_price),
@@ -336,47 +368,35 @@ export class BookingService {
     } catch (err) {
       loggingService.logBlockchainOperation(
         'createEscrow',
-        {
-          propertyId: property_id,
-          userId: tenant_id,
-        },
+        { propertyId: property_id, userId: tenant_id },
         undefined,
         String(err),
       );
       incCounter(escrowFailuresTotal, { operation: 'create_escrow' });
+      // Roll back the DB reservation so the slot is freed
+      await supabase.from('bookings').delete().eq('id', bookingId);
       return {
         success: false,
         error: `Failed to create escrow: ${String(err)}`,
       };
     }
 
-    // 6. Insert booking into Supabase
-    const { data: bookingData, error: insertError } = await supabase
+    // 7. Attach escrow_id to the reserved booking.
+    const { data: bookingData, error: updateError } = await supabase
       .from('bookings')
-      .insert({
-        property_id,
-        tenant_id,
-        check_in,
-        check_out,
-        guest_count,
-        total_price,
-        status: 'Pending',
-        escrow_id: escrowId,
-        rules_acknowledged_at,
-      })
+      .update({ escrow_id: escrowId })
+      .eq('id', bookingId)
       .select()
       .single();
 
-    if (insertError) {
+    if (updateError) {
       // Attempt escrow rollback
       try {
-        if (escrowId) {
-          await trustlessWorkClient.cancelEscrow(escrowId);
-        }
+        if (escrowId) await trustlessWorkClient.cancelEscrow(escrowId);
       } catch (rollbackErr) {
         console.error('[BookingService] Escrow rollback failed:', rollbackErr);
       }
-      return { success: false, error: insertError.message };
+      return { success: false, error: updateError.message };
     }
 
     const booking = bookingData as Booking;
@@ -387,7 +407,7 @@ export class BookingService {
     );
     incCounter(bookingsCreatedTotal, { property_id });
 
-    // 7. Create on-chain booking record (non-fatal on failure)
+    // 8. Create on-chain booking record (non-fatal on failure).
     if (prop.on_chain_id !== undefined && prop.on_chain_id !== null) {
       const checkInTs = BigInt(Math.floor(checkInDate.getTime() / 1000));
       const checkOutTs = BigInt(Math.floor(checkOutDate.getTime() / 1000));
@@ -423,11 +443,7 @@ export class BookingService {
       } catch (err) {
         loggingService.logBlockchainOperation(
           'createBookingOnChain',
-          {
-            bookingId: booking.id,
-            propertyId: property_id,
-            userId: tenant_id,
-          },
+          { bookingId: booking.id, propertyId: property_id, userId: tenant_id },
           undefined,
           String(err),
         );

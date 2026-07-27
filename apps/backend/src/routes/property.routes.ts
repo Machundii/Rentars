@@ -13,6 +13,7 @@ import {
   recordViewHandler,
   getViewStatsHandler,
   getOccupancyHeatmapHandler,
+  trackSuggestionAcceptedHandler,
 } from '@/controllers/property.controller.js';
 import { searchPropertiesEndpoint, searchNearbyEndpoint } from '@/controllers/propertySearch.controller.js';
 import {
@@ -52,6 +53,9 @@ router.get('/search/suggestions', searchSuggestionsHandler);
 
 // GET /api/v1/properties/search/trending - Trending searches
 router.get('/search/trending', trendingSearchesHandler);
+
+// POST /api/v1/properties/search/suggestion-accepted - Track suggestion acceptance
+router.post('/search/suggestion-accepted', trackSuggestionAcceptedHandler);
 
 // GET /api/v1/properties/by-slug/:slug - Look up property by human-readable slug
 // Must be registered before /:id so "by-slug" is not treated as an id

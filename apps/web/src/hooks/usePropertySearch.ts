@@ -15,6 +15,13 @@ export interface SearchResult {
   created_at?: string;
 }
 
+export interface ZeroResultSuggestion {
+  type: 'no_amenities' | 'wider_price' | 'expand_radius' | 'any_location';
+  description: string;
+  estimated_results: number;
+  relaxed_filters: Partial<FilterState>;
+}
+
 interface UseSearchOptions {
   debounceMs?: number;
 }
@@ -25,9 +32,11 @@ export function usePropertySearch(options: UseSearchOptions = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [zeroResultSuggestions, setZeroResultSuggestions] = useState<ZeroResultSuggestion[]>([]);
   const [page, setPage] = useState(1);
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastQueryRef = useRef<string>('');
 
   const search = useCallback(
     async (query: string, filters: Partial<FilterState> = {}, pageNum = 1) => {
@@ -39,6 +48,7 @@ export function usePropertySearch(options: UseSearchOptions = {}) {
 
       setLoading(true);
       setError(null);
+      lastQueryRef.current = query;
 
       try {
         const params = new URLSearchParams();
@@ -67,17 +77,33 @@ export function usePropertySearch(options: UseSearchOptions = {}) {
         const data = await response.json();
         setResults(data.data || []);
         setPage(pageNum);
+        setZeroResultSuggestions(data._suggestions ?? []);
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') {
           return;
         }
         setError(err instanceof Error ? err.message : 'Search error');
         setResults([]);
+        setZeroResultSuggestions([]);
       } finally {
         setLoading(false);
       }
     },
     [],
+  );
+
+  const applyZeroResultSuggestion = useCallback(
+    async (suggestion: ZeroResultSuggestion, currentFilters: Partial<FilterState> = {}) => {
+      fetch('/api/v1/properties/search/suggestion-accepted', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suggestion_type: suggestion.type, original_query: lastQueryRef.current }),
+      }).catch(() => {});
+
+      const relaxed = { ...currentFilters, ...suggestion.relaxed_filters };
+      await search(lastQueryRef.current, relaxed, 1);
+    },
+    [search],
   );
 
   const searchByBounds = useCallback(
@@ -185,10 +211,12 @@ export function usePropertySearch(options: UseSearchOptions = {}) {
     loading,
     error,
     suggestions,
+    zeroResultSuggestions,
     page,
     search,
     searchByBounds,
     getSuggestions,
     getTrending,
+    applyZeroResultSuggestion,
   };
 }

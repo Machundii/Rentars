@@ -416,13 +416,6 @@ export async function getPropertyBySlug(
   return { success: true, data: property };
 }
 
-
- *
- * Applies only the filters that are present in the `filters` object.
- * Price filters use `gte`/`lte` on `price_per_night`.
- *
- * @param filters - Optional filter criteria.
- */
 export async function getFeaturedProperties(
   limit = FEATURED_CAP,
 ): Promise<ServiceResponse<Property[]>> {

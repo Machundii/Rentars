@@ -4,6 +4,9 @@ import {
   getRateLimitSummary,
   setFeaturedHandler,
   clearFeaturedHandler,
+  getTopQueriesHandler,
+  getZeroResultQueriesHandler,
+  getSearchVolumeHandler,
 } from '@/controllers/admin.controller.js';
 
 const router = Router();
@@ -142,5 +145,25 @@ router.delete('/properties/:id/featured', clearFeaturedHandler);
  *         description: Not an admin
  */
 router.get('/rate-limits', getRateLimitSummary);
+
+// ── Search analytics dashboard ────────────────────────────────────────────────
+
+/**
+ * GET /api/v1/admin/analytics/search/top-queries
+ * Query: start_date, end_date (ISO datetime), limit (1–100, default 20)
+ */
+router.get('/analytics/search/top-queries', getTopQueriesHandler);
+
+/**
+ * GET /api/v1/admin/analytics/search/zero-results
+ * Query: start_date, end_date (ISO datetime), limit (1–100, default 20)
+ */
+router.get('/analytics/search/zero-results', getZeroResultQueriesHandler);
+
+/**
+ * GET /api/v1/admin/analytics/search/volume
+ * Query: start_date, end_date (ISO datetime)
+ */
+router.get('/analytics/search/volume', getSearchVolumeHandler);
 
 export default router;

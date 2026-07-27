@@ -279,4 +279,126 @@ describe('availability.service', () => {
       expect(available).toBe(false);
     });
   });
+
+  // ── blockAvailabilityRange — booking overlap guard (#267) ───────────────────
+
+  describe('blockAvailabilityRange — booking overlap guard', () => {
+    const ownerId = 'owner-1';
+    const propertyId = 'prop-1';
+
+    it('should reject blocking a range that overlaps a confirmed booking', async () => {
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'properties') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({ data: { owner_id: ownerId }, error: null })),
+              })),
+            })),
+          };
+        }
+        if (table === 'bookings') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                in: mock(() => ({
+                  lt: mock(() => ({
+                    gt: mock(() => ({
+                      limit: mock(async () => ({ data: [{ id: 'booking-confirmed' }], error: null })),
+                    })),
+                  })),
+                })),
+              })),
+            })),
+          };
+        }
+        return {};
+      });
+
+      const result = await blockAvailabilityRange(propertyId, ownerId, {
+        start_date: '2026-09-01',
+        end_date: '2026-09-10',
+        reason: 'maintenance',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/existing booking/i);
+    });
+
+    it('should succeed when no bookings overlap the blocked range', async () => {
+      const newRange = {
+        id: 'range-new',
+        property_id: propertyId,
+        start_date: '2026-10-01',
+        end_date: '2026-10-10',
+        is_available: false,
+      };
+
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'properties') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({ data: { owner_id: ownerId }, error: null })),
+              })),
+            })),
+          };
+        }
+        if (table === 'bookings') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                in: mock(() => ({
+                  lt: mock(() => ({
+                    gt: mock(() => ({
+                      limit: mock(async () => ({ data: [], error: null })),
+                    })),
+                  })),
+                })),
+              })),
+            })),
+          };
+        }
+        return {
+          insert: mock(() => ({
+            select: mock(() => ({
+              single: mock(async () => ({ data: newRange, error: null })),
+            })),
+          })),
+        };
+      });
+
+      const result = await blockAvailabilityRange(propertyId, ownerId, {
+        start_date: '2026-10-01',
+        end_date: '2026-10-10',
+        reason: 'Personal use',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data?.is_available).toBe(false);
+    });
+
+    it('should prevent a new booking on a host-blocked range (via isDateRangeAvailable)', async () => {
+      // When a host-blocked range exists, isDateRangeAvailable returns false
+      mockFrom.mockImplementation(() => ({
+        select: mock(() => ({
+          eq: mock(() => ({
+            eq: mock(() => ({
+              lt: mock(() => ({
+                gt: mock(() => ({
+                  limit: mock(async () => ({
+                    data: [{ id: 'block-host' }],
+                    error: null,
+                  })),
+                })),
+              })),
+            })),
+          })),
+        })),
+      }));
+
+      const available = await isDateRangeAvailable('prop-1', '2026-10-01', '2026-10-10');
+      expect(available).toBe(false);
+    });
+  });
 });

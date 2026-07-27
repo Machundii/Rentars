@@ -44,7 +44,8 @@ export async function createBooking(req: Request, res: Response): Promise<void> 
   const result = await bookingService.createBooking(req.body);
 
   if (!result.success) {
-    res.status(400).json({ error: result.error });
+    const status = result.conflict ? 409 : 400;
+    res.status(status).json({ error: result.error });
     return;
   }
 
