@@ -1,4 +1,5 @@
 import { supabase } from '@/config/supabase.js';
+import * as cache from './cache.service.js';
 import type { ServiceResponse } from './index.js';
 
 export interface GeocodeResult {
@@ -6,6 +7,13 @@ export interface GeocodeResult {
   longitude: number;
   address: string;
 }
+
+export interface ReverseGeocodeResult {
+  label: string;
+}
+
+/** Reverse-geocode cache TTL: 1 hour. Coordinates rarely change their place name. */
+const REVERSE_GEOCODE_TTL = 3600;
 
 export interface PropertyWithDistance {
   id: string;
@@ -27,6 +35,75 @@ export interface PriceComparison {
 }
 
 export class LocationService {
+  /**
+   * Reverse-geocode a coordinate pair to a human-readable address label.
+   * Results are cached in Redis for {@link REVERSE_GEOCODE_TTL} seconds.
+   *
+   * @param lat - WGS-84 latitude
+   * @param lng - WGS-84 longitude
+   */
+  async reverseGeocode(lat: number, lng: number): Promise<ServiceResponse<ReverseGeocodeResult>> {
+    if (isNaN(lat) || isNaN(lng)) {
+      return { success: false, error: 'Invalid latitude or longitude', statusCode: 400 };
+    }
+    if (lat < -90 || lat > 90) {
+      return { success: false, error: 'Latitude must be between -90 and 90', statusCode: 400 };
+    }
+    if (lng < -180 || lng > 180) {
+      return { success: false, error: 'Longitude must be between -180 and 180', statusCode: 400 };
+    }
+
+    // Round to 4 dp (~11 m precision) to maximise cache hits for near-identical coords.
+    const roundedLat = Math.round(lat * 10000) / 10000;
+    const roundedLng = Math.round(lng * 10000) / 10000;
+    const cacheKey = `reverse-geocode:${roundedLat}:${roundedLng}`;
+
+    const cached = await cache.get<ReverseGeocodeResult>(cacheKey);
+    if (cached) return { success: true, data: cached };
+
+    try {
+      const url =
+        `https://nominatim.openstreetmap.org/reverse?lat=${roundedLat}&lon=${roundedLng}&format=json`;
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'Rentars/1.0 (rentals platform)' },
+      });
+
+      if (!response.ok) {
+        return { success: false, error: 'Reverse geocoding service unavailable', statusCode: 502 };
+      }
+
+      const data = (await response.json()) as {
+        display_name?: string;
+        error?: string;
+        address?: {
+          city?: string;
+          town?: string;
+          village?: string;
+          county?: string;
+          state?: string;
+          country?: string;
+        };
+      };
+
+      if (data.error || !data.display_name) {
+        return { success: false, error: 'Location not found', statusCode: 404 };
+      }
+
+      // Build a concise label: "City, State, Country" falling back to display_name.
+      const a = data.address ?? {};
+      const city = a.city ?? a.town ?? a.village ?? a.county ?? '';
+      const parts = [city, a.state, a.country].filter(Boolean);
+      const label = parts.length >= 2 ? parts.join(', ') : data.display_name;
+
+      const result: ReverseGeocodeResult = { label };
+      await cache.set(cacheKey, result, REVERSE_GEOCODE_TTL);
+      return { success: true, data: result };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Reverse geocoding failed';
+      return { success: false, error: message, statusCode: 500 };
+    }
+  }
+
   async geocode(address: string): Promise<ServiceResponse<GeocodeResult>> {
     if (!address || address.trim() === '') {
       return { success: false, error: 'Address is required', statusCode: 400 };

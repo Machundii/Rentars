@@ -58,3 +58,30 @@ export async function geocodeAddress(address: string): Promise<GeocodedLocation 
     return null;
   }
 }
+
+export interface ReverseGeocodedLocation {
+  label: string;
+}
+
+/**
+ * Resolve a coordinate pair to a human-readable place label via the backend
+ * reverse-geocode endpoint (which caches results in Redis).
+ *
+ * Returns `null` on network error or when the server cannot identify the location.
+ */
+export async function reverseGeocodeCoords(
+  lat: number,
+  lng: number,
+): Promise<ReverseGeocodedLocation | null> {
+  try {
+    const res = await fetch(
+      `${API_URL}/api/v1/locations/reverse-geocode?lat=${lat}&lng=${lng}`,
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data?.label) return null;
+    return { label: data.label as string };
+  } catch {
+    return null;
+  }
+}

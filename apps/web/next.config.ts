@@ -4,7 +4,29 @@ import path from 'path';
 const nextConfig: NextConfig = {
   output: 'standalone',
   images: {
-    domains: ['images.unsplash.com'],
+    // `remotePatterns` supersedes the deprecated `domains` list and supports
+    // wildcards, so we cover Supabase storage buckets and any future CDN host.
+    remotePatterns: [
+      // Unsplash (existing images used in seed data / stories)
+      {
+        protocol: 'https',
+        hostname: 'images.unsplash.com',
+      },
+      // Supabase Storage — project URL varies per environment, so match any
+      // *.supabase.co storage subdomain.
+      {
+        protocol: 'https',
+        hostname: '*.supabase.co',
+        pathname: '/storage/v1/object/**',
+      },
+      // Self-hosted / local Supabase (docker) on localhost
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '54321',
+        pathname: '/storage/v1/object/**',
+      },
+    ],
   },
   webpack(config) {
     config.resolve.alias = {
