@@ -1,6 +1,12 @@
 import { supabase } from '../config/supabase.js';
 import { emailService } from './email.service.js';
 import type { ServiceResponse } from './index.js';
+import { decodeCursor, buildCursorPage } from '../utils/cursor.js';
+
+export interface CursorPaginatedResult<T> {
+  data: T[];
+  nextCursor: string | null;
+}
 
 export type NotificationType =
   | 'booking_created'
@@ -71,6 +77,50 @@ export async function getNotifications(userId: string): Promise<ServiceResponse<
 
   if (error) return { success: false, error: error.message };
   return { success: true, data: (data ?? []) as Notification[] };
+}
+
+/**
+ * Cursor-based paginated notification list.
+ *
+ * Sort key: (created_at DESC, id DESC) — stable even under concurrent inserts.
+ * We fetch limit+1 rows so we can detect whether a next page exists.
+ *
+ * @param userId - The authenticated user's ID
+ * @param cursor - Opaque cursor returned from a previous call (omit for first page)
+ * @param limit  - Page size, default 20, max 100
+ */
+export async function getNotificationsCursor(
+  userId: string,
+  cursor?: string | null,
+  limit = 20,
+): Promise<ServiceResponse<CursorPaginatedResult<Notification>>> {
+  const pageSize = Math.min(Math.max(1, limit), 100);
+  const decoded = decodeCursor(cursor);
+
+  let query = supabase
+    .from('notifications')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(pageSize + 1); // +1 to detect hasMore
+
+  if (decoded) {
+    // Keyset filter: rows strictly after the cursor position
+    // (created_at < cursor.created_at) OR (created_at = cursor.created_at AND id < cursor.id)
+    query = query.or(
+      `created_at.lt.${decoded.created_at},and(created_at.eq.${decoded.created_at},id.lt.${decoded.id})`,
+    );
+  }
+
+  const { data, error } = await query;
+
+  if (error) return { success: false, error: error.message };
+
+  const rows = (data ?? []) as Notification[];
+  const page = buildCursorPage(rows, pageSize);
+
+  return { success: true, data: page };
 }
 
 export async function markAsRead(
@@ -159,6 +209,23 @@ async function shouldSendEmail(userId: string, type: NotificationType): Promise<
   return typeEnabled !== false;
 }
 
+async function shouldSendPush(userId: string, type: NotificationType): Promise<boolean> {
+  const prefsResult = await getPreferences(userId);
+  if (!prefsResult.success || !prefsResult.data) return true;
+  const prefs = prefsResult.data;
+  if (!prefs.push_notifications) return false;
+  const typeEnabled = prefs.notification_types[type];
+  return typeEnabled !== false;
+}
+
+async function shouldSendInApp(userId: string, type: NotificationType): Promise<boolean> {
+  const prefsResult = await getPreferences(userId);
+  if (!prefsResult.success || !prefsResult.data) return true;
+  const prefs = prefsResult.data;
+  const typeEnabled = prefs.notification_types[type];
+  return typeEnabled !== false;
+}
+
 export async function createNotificationWithEmail(
   userId: string,
   type: NotificationType,
@@ -208,6 +275,44 @@ export async function sendBatchedNotifications(
   }
 
   return { success: true, data: sent };
+}
+
+export async function createNotificationWithAllChannels(
+  userId: string,
+  type: NotificationType,
+  data: Record<string, unknown>
+): Promise<ServiceResponse<void>> {
+  const inAppResult = await createNotification(userId, type, data);
+  if (!inAppResult.success) {
+    return { success: false, error: inAppResult.error };
+  }
+
+  const emailShouldSend = await shouldSendEmail(userId, type);
+  if (emailShouldSend && data.userEmail) {
+    const emailData = {
+      to: String(data.userEmail),
+      userName: String(data.userName ?? ''),
+      propertyTitle: String(data.propertyTitle ?? ''),
+      checkIn: String(data.checkIn ?? ''),
+      checkOut: String(data.checkOut ?? ''),
+      totalPrice: Number(data.totalPrice ?? 0),
+    };
+
+    const emailPromise =
+      type === 'booking_created'
+        ? emailService.sendBookingCreated(emailData)
+        : type === 'booking_confirmed'
+          ? emailService.sendBookingConfirmed(emailData)
+          : type === 'booking_cancelled'
+            ? emailService.sendBookingCancelled(emailData)
+            : Promise.resolve();
+
+    await emailPromise.catch((err) =>
+      console.error(`[NotificationService] Email send failed for type ${type}:`, err)
+    );
+  }
+
+  return { success: true };
 }
 
 export { EMAIL_TEMPLATES };
