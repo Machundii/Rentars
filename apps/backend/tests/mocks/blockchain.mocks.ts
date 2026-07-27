@@ -1,25 +1,25 @@
 /**
- * Blockchain service mocks — mocking all blockchain service functions.
+ * Blockchain service mocks — using bun:test mock API.
  */
 
+import { mock } from 'bun:test';
+
 export const mockBlockchainServices = {
-  checkAvailability: jest.fn().mockResolvedValue(true),
-  createBookingOnChain: jest.fn().mockResolvedValue(BigInt(1)),
-  cancelBookingOnChain: jest.fn().mockResolvedValue(undefined),
-  updateBookingStatusOnChain: jest.fn().mockResolvedValue(undefined),
-  listPropertyOnChain: jest.fn().mockResolvedValue(BigInt(1)),
-  getPropertyOnChain: jest.fn().mockResolvedValue({
+  checkAvailability: mock(async () => true),
+  createBookingOnChain: mock(async () => BigInt(1)),
+  cancelBookingOnChain: mock(async () => undefined),
+  updateBookingStatusOnChain: mock(async () => undefined),
+  listPropertyOnChain: mock(async () => BigInt(1)),
+  getPropertyOnChain: mock(async () => ({
     id: BigInt(1),
     owner: 'GBRPYHIL2CI3WHZDTOOQFC6EB4CGQOFSNHERX3LRJCX5FWCL46664F3',
     title: 'Test Property',
     pricePerNight: BigInt(100),
-  }),
+  })),
 };
 
 export function resetBlockchainMocks() {
-  Object.values(mockBlockchainServices).forEach((mock) => {
-    if (jest.isMockFunction(mock)) {
-      mock.mockClear();
-    }
-  });
+  for (const m of Object.values(mockBlockchainServices)) {
+    m.mockClear();
+  }
 }

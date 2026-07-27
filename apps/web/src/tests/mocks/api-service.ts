@@ -1,6 +1,9 @@
 import { vi } from 'vitest';
 
-// Mock API service module
+/**
+ * Reusable mock object for API calls used across frontend tests.
+ * Each method is a vi.fn() that can be configured per-test.
+ */
 export const mockApiService = {
   auth: {
     login: vi.fn(),
@@ -21,6 +24,3 @@ export const mockApiService = {
     delete: vi.fn(),
   },
 };
-
-// Mock the API service module
-vi.mock('@/services/api', () => mockApiService);

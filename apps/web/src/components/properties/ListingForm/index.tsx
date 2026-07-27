@@ -8,15 +8,26 @@ import LocationStep from './steps/LocationStep';
 import AmenitiesStep from './steps/AmenitiesStep';
 import PhotosStep from './steps/PhotosStep';
 import PricingStep from './steps/PricingStep';
+import HouseRulesStep from './steps/HouseRulesStep';
 import ReviewStep from './steps/ReviewStep';
 
-const STEPS: ListingStep[] = ['basic', 'location', 'amenities', 'photos', 'pricing', 'review'];
+const STEPS: ListingStep[] = [
+  'basic',
+  'location',
+  'amenities',
+  'photos',
+  'pricing',
+  'rules',
+  'review',
+];
+
 const STEP_LABELS: Record<ListingStep, string> = {
   basic: 'Basic Info',
   location: 'Location',
   amenities: 'Amenities',
   photos: 'Photos',
   pricing: 'Pricing',
+  rules: 'House Rules',
   review: 'Review',
 };
 
@@ -25,8 +36,18 @@ export default function ListingForm() {
   const [formData, setFormData] = useState<Partial<ListingFormData>>({
     amenities: [],
     images: [],
+    maxGuests: 1,
+    bedrooms: 0,
+    bathrooms: 0,
+    petsAllowed: false,
+    smokingAllowed: false,
+    eventsAllowed: false,
+    quietHoursStart: '',
+    quietHoursEnd: '',
+    additionalRules: '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [uploadsInProgress, setUploadsInProgress] = useState(false);
 
   const currentStepIndex = STEPS.indexOf(currentStep);
 
@@ -53,6 +74,8 @@ export default function ListingForm() {
           value.forEach((file) => formDataToSend.append('images', file));
         } else if (key === 'amenities' && Array.isArray(value)) {
           formDataToSend.append('amenities', JSON.stringify(value));
+        } else if (typeof value === 'boolean') {
+          formDataToSend.append(key, String(value));
         } else if (value !== undefined) {
           formDataToSend.append(key, String(value));
         }
@@ -60,9 +83,7 @@ export default function ListingForm() {
 
       const response = await fetch(`${API_URL}/api/properties`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
         body: formDataToSend,
       });
 
@@ -93,7 +114,9 @@ export default function ListingForm() {
           <div
             key={step}
             className={`${formStyles.step} ${
-              STEPS.indexOf(step) <= currentStepIndex ? formStyles.stepActive : formStyles.stepInactive
+              STEPS.indexOf(step) <= currentStepIndex
+                ? formStyles.stepActive
+                : formStyles.stepInactive
             }`}
             title={STEP_LABELS[step]}
           />
@@ -114,10 +137,18 @@ export default function ListingForm() {
           <AmenitiesStep formData={formData} setFormData={setFormData} errors={errors} />
         )}
         {currentStep === 'photos' && (
-          <PhotosStep formData={formData} setFormData={setFormData} errors={errors} />
+          <PhotosStep
+            formData={formData}
+            setFormData={setFormData}
+            errors={errors}
+            onUploadStatusChange={setUploadsInProgress}
+          />
         )}
         {currentStep === 'pricing' && (
           <PricingStep formData={formData} setFormData={setFormData} errors={errors} />
+        )}
+        {currentStep === 'rules' && (
+          <HouseRulesStep formData={formData} setFormData={setFormData} errors={errors} />
         )}
         {currentStep === 'review' && (
           <ReviewStep formData={formData} errors={errors} />
@@ -133,11 +164,20 @@ export default function ListingForm() {
             Previous
           </button>
           {currentStepIndex < STEPS.length - 1 ? (
-            <button onClick={handleNext} className={`${formStyles.button} ${formStyles.buttonPrimary}`}>
+            <button
+              onClick={handleNext}
+              disabled={currentStep === 'photos' && uploadsInProgress}
+              className={`${formStyles.button} ${formStyles.buttonPrimary} ${
+                currentStep === 'photos' && uploadsInProgress ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
               Next
             </button>
           ) : (
-            <button onClick={handleSubmit} className={`${formStyles.button} ${formStyles.buttonPrimary}`}>
+            <button
+              onClick={handleSubmit}
+              className={`${formStyles.button} ${formStyles.buttonPrimary}`}
+            >
               Submit Listing
             </button>
           )}

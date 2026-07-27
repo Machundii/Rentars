@@ -23,3 +23,14 @@ export interface PayoutRecord {
   status: 'pending' | 'completed' | 'failed';
   method: string;
 }
+
+export interface MonthlyMetric {
+  month: string;
+  earnings: number;
+  bookings: number;
+}
+
+export interface OccupancyData {
+  bookedNights: number;
+  availableNights: number;
+}

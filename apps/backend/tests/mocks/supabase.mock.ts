@@ -1,46 +1,58 @@
 /**
  * Supabase mock — chainable mock that simulates .from().select().eq() etc.
+ * Compatible with bun:test mock API.
  */
 
+import { mock } from 'bun:test';
+
 export interface MockSupabaseQuery {
-  select: jest.Mock;
-  eq: jest.Mock;
-  single: jest.Mock;
-  insert: jest.Mock;
-  update: jest.Mock;
-  delete: jest.Mock;
-  order: jest.Mock;
-  limit: jest.Mock;
-  ilike: jest.Mock;
-  gte: jest.Mock;
-  lte: jest.Mock;
+  select: ReturnType<typeof mock>;
+  eq: ReturnType<typeof mock>;
+  neq: ReturnType<typeof mock>;
+  single: ReturnType<typeof mock>;
+  insert: ReturnType<typeof mock>;
+  update: ReturnType<typeof mock>;
+  delete: ReturnType<typeof mock>;
+  upsert: ReturnType<typeof mock>;
+  order: ReturnType<typeof mock>;
+  limit: ReturnType<typeof mock>;
+  ilike: ReturnType<typeof mock>;
+  gte: ReturnType<typeof mock>;
+  lte: ReturnType<typeof mock>;
+  lt: ReturnType<typeof mock>;
+  gt: ReturnType<typeof mock>;
 }
 
 export function createMockSupabaseQuery(): MockSupabaseQuery {
   const query: any = {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    single: jest.fn().mockReturnThis(),
-    insert: jest.fn().mockReturnThis(),
-    update: jest.fn().mockReturnThis(),
-    delete: jest.fn().mockReturnThis(),
-    order: jest.fn().mockReturnThis(),
-    limit: jest.fn().mockReturnThis(),
-    ilike: jest.fn().mockReturnThis(),
-    gte: jest.fn().mockReturnThis(),
-    lte: jest.fn().mockReturnThis(),
+    select: mock(() => query),
+    eq: mock(() => query),
+    neq: mock(() => query),
+    single: mock(() => Promise.resolve({ data: null, error: null })),
+    insert: mock(() => query),
+    update: mock(() => query),
+    delete: mock(() => query),
+    upsert: mock(() => query),
+    order: mock(() => query),
+    limit: mock(() => query),
+    ilike: mock(() => query),
+    gte: mock(() => query),
+    lte: mock(() => query),
+    lt: mock(() => query),
+    gt: mock(() => query),
   };
-
   return query;
 }
 
 export function createMockSupabase() {
   return {
-    from: jest.fn((table: string) => createMockSupabaseQuery()),
+    from: mock((_table: string) => createMockSupabaseQuery()),
     auth: {
+      signUp: mock(() => Promise.resolve({ data: null, error: null })),
+      signInWithPassword: mock(() => Promise.resolve({ data: null, error: null })),
       admin: {
-        createUser: jest.fn(),
-        deleteUser: jest.fn(),
+        createUser: mock(() => Promise.resolve({ data: null, error: null })),
+        deleteUser: mock(() => Promise.resolve({ data: null, error: null })),
       },
     },
   };

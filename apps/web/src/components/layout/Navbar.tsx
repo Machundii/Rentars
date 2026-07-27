@@ -5,18 +5,21 @@ import Link from 'next/link';
 import { useAuth } from '@/hooks/auth/use-auth';
 import { WalletAuthButton } from '@/components/auth/WalletAuthButton';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
+import { LocaleSwitcher } from '@/components/shared/LocaleSwitcher';
 import NotificationBell from '@/components/shared/NotificationBell';
+import { useTranslations } from '@/lib/i18n/useTranslations';
 import { House, Menu, X, LogOut, User } from 'lucide-react';
 
 export function Navbar() {
   const { user, logout } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
+  const t = useTranslations('nav');
 
   const navLinks = [
-    { href: '/', label: 'Home' },
-    { href: '/search', label: 'Search' },
-    { href: '/list', label: 'List Property' },
-    { href: '/dashboard', label: 'Dashboard' },
+    { href: '/', label: t('home') },
+    { href: '/search', label: t('search') },
+    { href: '/list', label: t('listProperty') },
+    { href: '/dashboard', label: t('dashboard') },
   ];
 
   return (
@@ -43,7 +46,8 @@ export function Navbar() {
           </div>
 
           {/* Right Section */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <LocaleSwitcher />
             <ThemeToggle />
 
             {user ? (
@@ -56,7 +60,7 @@ export function Navbar() {
                 <button
                   onClick={logout}
                   className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition"
-                  title="Logout"
+                  title={t('logout')}
                 >
                   <LogOut size={18} className="text-gray-600 dark:text-gray-300" />
                 </button>
@@ -71,6 +75,7 @@ export function Navbar() {
             <button
               onClick={() => setIsOpen(!isOpen)}
               className="md:hidden p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition"
+              aria-label={isOpen ? 'Close menu' : 'Open menu'}
             >
               {isOpen ? (
                 <X size={24} className="text-gray-900 dark:text-white" />
@@ -108,7 +113,7 @@ export function Navbar() {
                 className="w-full text-left px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition flex items-center gap-2"
               >
                 <LogOut size={18} />
-                Logout
+                {t('logout')}
               </button>
             )}
           </div>

@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import type { NextFunction, Request, Response } from 'express';
 import { StrKey } from '@stellar/stellar-sdk';
+import { ValidationError } from '@/types/errors.js';
 
 // ─── Register schema ──────────────────────────────────────────────────────────
 
@@ -18,7 +19,11 @@ export const registerSchema = z.object({
   password: z
     .string({ required_error: 'password is required' })
     .min(8, 'password must be at least 8 characters')
-    .max(128, 'password must be at most 128 characters'),
+    .max(128, 'password must be at most 128 characters')
+    .regex(/[A-Z]/, 'password must contain at least one uppercase letter')
+    .regex(/[a-z]/, 'password must contain at least one lowercase letter')
+    .regex(/[0-9]/, 'password must contain at least one number')
+    .regex(/[^A-Za-z0-9]/, 'password must contain at least one special character'),
 
   name: z
     .string({ required_error: 'name is required' })
@@ -39,6 +44,26 @@ export const loginSchema = z.object({
   password: z
     .string({ required_error: 'password is required' })
     .min(1, 'password is required'),
+});
+
+// ─── Password reset schemas ───────────────────────────────────────────────────
+
+export const requestPasswordResetSchema = z.object({
+  email: z
+    .string({ required_error: 'email is required' })
+    .email('email must be a valid email address')
+    .toLowerCase()
+    .trim(),
+});
+
+export const confirmPasswordResetSchema = z.object({
+  token: z.string({ required_error: 'token is required' }).min(1, 'token is required'),
+  password: z
+    .string({ required_error: 'password is required' })
+    .min(8, 'password must be at least 8 characters')
+    .max(128, 'password must be at most 128 characters')
+    .regex(/[A-Z]/, 'password must contain at least one uppercase letter')
+    .regex(/[0-9]/, 'password must contain at least one number'),
 });
 
 // ─── Wallet Challenge schema ──────────────────────────────────────────────────
@@ -71,13 +96,17 @@ export function validateBody<T extends z.ZodTypeAny>(schema: T) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
-      res.status(422).json({
-        error: 'Validation failed',
-        details: result.error.errors.map((e) => ({
-          field: e.path.join('.'),
-          message: e.message,
-        })),
+      const fields: Record<string, string[]> = {};
+      result.error.errors.forEach((error) => {
+        const field = error.path.join('.');
+        if (!fields[field]) {
+          fields[field] = [];
+        }
+        fields[field].push(error.message);
       });
+
+      const validationError = new ValidationError('Validation failed', fields);
+      next(validationError);
       return;
     }
     req.body = result.data;

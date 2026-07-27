@@ -78,6 +78,25 @@ export async function blockAvailabilityRange(
   if (!startDate || !endDate) return { success: false, error: 'Invalid date format' };
   if (startDate >= endDate) return { success: false, error: 'start_date must be before end_date' };
 
+  // Reject if a confirmed booking already covers any part of this range.
+  const { data: conflictingBookings, error: conflictError } = await supabase
+    .from('bookings')
+    .select('id')
+    .eq('property_id', propertyId)
+    .in('status', ['Confirmed', 'Pending'])
+    .lt('check_in', input.end_date)
+    .gt('check_out', input.start_date)
+    .limit(1);
+
+  if (conflictError) return { success: false, error: conflictError.message };
+
+  if (conflictingBookings && conflictingBookings.length > 0) {
+    return {
+      success: false,
+      error: 'Cannot block this range: an existing booking overlaps these dates',
+    };
+  }
+
   const { data, error } = await supabase
     .from('availability_ranges')
     .insert({

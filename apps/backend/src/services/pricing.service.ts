@@ -1,206 +1,185 @@
 import { supabase } from '@/config/supabase.js';
 import type { ServiceResponse } from './index.js';
 
-export interface PricingRule {
+const PLATFORM_FEE_PCT = 0.05;
+const MIN_PRICE_MULTIPLIER = 0.1;
+const MAX_PRICE_MULTIPLIER = 10;
+const MIN_NIGHTLY_PRICE = 1;
+const MAX_NIGHTLY_PRICE = 10_000;
+
+export interface SeasonalPricing {
   id: string;
   property_id: string;
-  rule_type: 'seasonal' | 'demand' | 'weekend';
-  start_date?: string | null;
-  end_date?: string | null;
-  price_override?: number | null;
-  multiplier?: number | null;
-  priority: number;
+  name: string;
+  start_date: string;
+  end_date: string;
+  price_multiplier: number;
+  created_at?: string;
 }
 
-export interface PricingRuleInput {
-  rule_type: 'seasonal' | 'demand' | 'weekend';
-  start_date?: string;
-  end_date?: string;
-  price_override?: number;
-  multiplier?: number;
-  priority?: number;
-}
-
-export interface PriceBreakdown {
+export interface SpecialEvent {
+  id: string;
   property_id: string;
-  check_in: string;
-  check_out: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  price_multiplier?: number;
+  is_blocked: boolean;
+  created_at?: string;
+}
+
+export interface DayPricing {
+  date: string;
+  price: number;
+  is_available: boolean;
+  reason?: string;
+}
+
+export interface PriceQuote {
+  base_nightly_rate: number;
   nights: number;
-  base_price_per_night: number;
-  applied_rules: Array<{ rule_type: string; effect: string }>;
-  total_price: number;
-  price_per_night: number;
-}
-
-function isWeekend(date: Date): boolean {
-  const day = date.getUTCDay();
-  return day === 0 || day === 6;
-}
-
-function dateStr(date: Date): string {
-  return date.toISOString().split('T')[0];
+  subtotal: number;
+  dynamic_adjustments: number;
+  platform_fee_pct: number;
+  platform_fee: number;
+  total: number;
+  breakdown: DayPricing[];
 }
 
 /**
- * Calculate nightly price for a specific date given sorted pricing rules.
- * Rules are applied by priority (highest first); first match wins.
+ * Calculate price for a date range considering seasonal pricing,
+ * special events, and base price. All dates normalized to UTC.
  */
-function applyRules(
-  date: Date,
-  basePricePerNight: number,
-  rules: PricingRule[],
-): { price: number; ruleType?: string } {
-  const ds = dateStr(date);
-
-  for (const rule of rules) {
-    // Weekend rule: applies when the date is Sat or Sun
-    if (rule.rule_type === 'weekend' && isWeekend(date)) {
-      const price = rule.price_override ?? basePricePerNight * (rule.multiplier ?? 1);
-      return { price, ruleType: 'weekend' };
-    }
-
-    // Seasonal / demand: applies when date falls in range
-    if (
-      (rule.rule_type === 'seasonal' || rule.rule_type === 'demand') &&
-      rule.start_date &&
-      rule.end_date &&
-      ds >= rule.start_date &&
-      ds < rule.end_date
-    ) {
-      const price = rule.price_override ?? basePricePerNight * (rule.multiplier ?? 1);
-      return { price, ruleType: rule.rule_type };
-    }
-  }
-
-  return { price: basePricePerNight };
-}
-
-/**
- * Calculate price breakdown for a given stay.
- */
-export async function calculatePrice(
+export async function calculateRangePrice(
   propertyId: string,
   checkIn: string,
   checkOut: string,
-): Promise<ServiceResponse<PriceBreakdown>> {
+): Promise<ServiceResponse<{ total: number; breakdown: DayPricing[] }>> {
   const checkInDate = new Date(checkIn);
   const checkOutDate = new Date(checkOut);
 
   if (isNaN(checkInDate.getTime()) || isNaN(checkOutDate.getTime())) {
     return { success: false, error: 'Invalid date format' };
   }
-  if (checkInDate >= checkOutDate) {
-    return { success: false, error: 'check_in must be before check_out' };
-  }
-
-  const nights = Math.round(
-    (checkOutDate.getTime() - checkInDate.getTime()) / 86400000,
-  );
 
   // Fetch property base price
   const { data: property, error: propError } = await supabase
     .from('properties')
-    .select('price_per_night')
+    .select('base_price_per_night')
     .eq('id', propertyId)
     .single();
 
-  if (propError || !property) return { success: false, error: 'Property not found' };
-  const basePricePerNight = (property as { price_per_night: number }).price_per_night;
+  if (propError || !property) {
+    return { success: false, error: 'Property not found' };
+  }
 
-  // Fetch pricing rules ordered by priority desc
-  const { data: rules } = await supabase
-    .from('pricing_rules')
+  const basePrice = (property as { base_price_per_night: number }).base_price_per_night;
+
+  // Fetch seasonal pricing
+  const { data: seasonalRates } = await supabase
+    .from('seasonal_pricing')
     .select('*')
     .eq('property_id', propertyId)
-    .order('priority', { ascending: false });
+    .lte('start_date', checkOut)
+    .gte('end_date', checkIn);
 
-  const sortedRules = (rules ?? []) as PricingRule[];
+  // Fetch special events
+  const { data: events } = await supabase
+    .from('special_events')
+    .select('*')
+    .eq('property_id', propertyId)
+    .lte('start_date', checkOut)
+    .gte('end_date', checkIn);
 
-  // Calculate per-night prices
-  let totalPrice = 0;
-  const ruleUsage = new Map<string, number>();
+  const breakdown: DayPricing[] = [];
+  let total = 0;
 
-  for (let i = 0; i < nights; i++) {
-    const date = new Date(checkInDate);
-    date.setUTCDate(date.getUTCDate() + i);
-    const { price, ruleType } = applyRules(date, basePricePerNight, sortedRules);
-    totalPrice += price;
-    if (ruleType) {
-      ruleUsage.set(ruleType, (ruleUsage.get(ruleType) ?? 0) + 1);
+  for (let d = new Date(checkInDate); d < checkOutDate; d.setDate(d.getDate() + 1)) {
+    const dateStr = d.toISOString().split('T')[0];
+
+    // Check if blocked by special event
+    const blockedEvent = events?.find(
+      (e) => e.is_blocked && dateStr >= e.start_date && dateStr < e.end_date,
+    );
+
+    if (blockedEvent) {
+      breakdown.push({
+        date: dateStr,
+        price: 0,
+        is_available: false,
+        reason: `Blocked: ${blockedEvent.name}`,
+      });
+      continue;
     }
+
+    // Calculate multiplier from seasonal pricing + special events
+    let multiplier = 1;
+
+    const seasonalRate = seasonalRates?.find(
+      (r) => dateStr >= r.start_date && dateStr < r.end_date,
+    );
+    if (seasonalRate) {
+      multiplier *= seasonalRate.price_multiplier;
+    }
+
+    const event = events?.find(
+      (e) => !e.is_blocked && dateStr >= e.start_date && dateStr < e.end_date,
+    );
+    if (event?.price_multiplier) {
+      multiplier *= event.price_multiplier;
+    }
+
+    const dayPrice = basePrice * multiplier;
+    total += dayPrice;
+
+    breakdown.push({
+      date: dateStr,
+      price: dayPrice,
+      is_available: true,
+    });
   }
 
-  const appliedRules = Array.from(ruleUsage.entries()).map(([ruleType, count]) => ({
-    rule_type: ruleType,
-    effect: `Applied for ${count} night(s)`,
-  }));
-
-  return {
-    success: true,
-    data: {
-      property_id: propertyId,
-      check_in: checkIn,
-      check_out: checkOut,
-      nights,
-      base_price_per_night: basePricePerNight,
-      applied_rules: appliedRules,
-      total_price: Math.round(totalPrice * 100) / 100,
-      price_per_night: Math.round((totalPrice / nights) * 100) / 100,
-    },
-  };
+  return { success: true, data: { total, breakdown } };
 }
 
-/** List all pricing rules for a property */
-export async function getPricingRules(
+/**
+ * Get all seasonal pricing for a property
+ */
+export async function getSeasonalPricing(
   propertyId: string,
-): Promise<ServiceResponse<PricingRule[]>> {
+): Promise<ServiceResponse<SeasonalPricing[]>> {
   const { data, error } = await supabase
-    .from('pricing_rules')
+    .from('seasonal_pricing')
     .select('*')
     .eq('property_id', propertyId)
-    .order('priority', { ascending: false });
+    .order('start_date', { ascending: true });
 
   if (error) return { success: false, error: error.message };
-  return { success: true, data: data as PricingRule[] };
+  return { success: true, data: data as SeasonalPricing[] };
 }
 
-/** Create a pricing rule (owner only) */
-export async function createPricingRule(
+/**
+ * Create seasonal pricing rule
+ */
+export async function createSeasonalPricing(
   propertyId: string,
   ownerId: string,
-  input: PricingRuleInput,
-): Promise<ServiceResponse<PricingRule>> {
-  const { data: property } = await supabase
-    .from('properties')
-    .select('owner_id')
-    .eq('id', propertyId)
-    .single();
-
-  if (!property) return { success: false, error: 'Property not found' };
-  if ((property as { owner_id: string }).owner_id !== ownerId) {
-    return { success: false, error: 'Forbidden: you do not own this property' };
+  input: Omit<SeasonalPricing, 'id' | 'property_id' | 'created_at'>,
+): Promise<ServiceResponse<SeasonalPricing>> {
+  if (
+    input.price_multiplier < MIN_PRICE_MULTIPLIER ||
+    input.price_multiplier > MAX_PRICE_MULTIPLIER
+  ) {
+    return {
+      success: false,
+      error: `price_multiplier must be between ${MIN_PRICE_MULTIPLIER} and ${MAX_PRICE_MULTIPLIER}`,
+    };
+  }
+  if (new Date(input.start_date) >= new Date(input.end_date)) {
+    return { success: false, error: 'start_date must be before end_date' };
   }
 
-  if (!input.price_override && !input.multiplier) {
-    return { success: false, error: 'Either price_override or multiplier is required' };
-  }
-
-  const { data, error } = await supabase
-    .from('pricing_rules')
-    .insert({ property_id: propertyId, ...input, priority: input.priority ?? 0 })
-    .select()
-    .single();
-
-  if (error) return { success: false, error: error.message };
-  return { success: true, data: data as PricingRule };
-}
-
-/** Delete a pricing rule (owner only) */
-export async function deletePricingRule(
-  propertyId: string,
-  ruleId: string,
-  ownerId: string,
-): Promise<ServiceResponse<void>> {
+  // Verify ownership
   const { data: property } = await supabase
     .from('properties')
     .select('owner_id')
@@ -208,66 +187,187 @@ export async function deletePricingRule(
     .single();
 
   if (!property || (property as { owner_id: string }).owner_id !== ownerId) {
-    return { success: false, error: 'Forbidden: you do not own this property' };
+    return { success: false, error: 'Forbidden' };
   }
 
-  const { error } = await supabase
-    .from('pricing_rules')
-    .delete()
-    .eq('id', ruleId)
-    .eq('property_id', propertyId);
-
-  if (error) return { success: false, error: error.message };
-  return { success: true };
-}
-
-/** Get or upsert property settings (min/max stay) */
-export async function getPropertySettings(
-  propertyId: string,
-): Promise<ServiceResponse<{ min_stay_nights: number; max_stay_nights?: number | null }>> {
   const { data, error } = await supabase
-    .from('property_settings')
-    .select('min_stay_nights, max_stay_nights')
-    .eq('property_id', propertyId)
+    .from('seasonal_pricing')
+    .insert({ property_id: propertyId, ...input })
+    .select()
     .single();
 
-  if (error && error.code !== 'PGRST116') return { success: false, error: error.message };
-
-  return {
-    success: true,
-    data: data
-      ? (data as { min_stay_nights: number; max_stay_nights?: number | null })
-      : { min_stay_nights: 1, max_stay_nights: null },
-  };
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: data as SeasonalPricing };
 }
 
-/** Update property settings (owner only) */
-export async function upsertPropertySettings(
+/**
+ * Delete seasonal pricing rule
+ */
+export async function deleteSeasonalPricing(
   propertyId: string,
+  pricingId: string,
   ownerId: string,
-  settings: { min_stay_nights?: number; max_stay_nights?: number | null },
-): Promise<ServiceResponse<{ min_stay_nights: number; max_stay_nights?: number | null }>> {
+): Promise<ServiceResponse<void>> {
+  // Verify ownership
   const { data: property } = await supabase
     .from('properties')
     .select('owner_id')
     .eq('id', propertyId)
     .single();
 
-  if (!property) return { success: false, error: 'Property not found' };
-  if ((property as { owner_id: string }).owner_id !== ownerId) {
-    return { success: false, error: 'Forbidden: you do not own this property' };
+  if (!property || (property as { owner_id: string }).owner_id !== ownerId) {
+    return { success: false, error: 'Forbidden' };
   }
 
-  if (settings.min_stay_nights !== undefined && settings.min_stay_nights < 1) {
-    return { success: false, error: 'min_stay_nights must be at least 1' };
+  const { error } = await supabase
+    .from('seasonal_pricing')
+    .delete()
+    .eq('id', pricingId)
+    .eq('property_id', propertyId);
+
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+/**
+ * Create special event (holiday pricing or block)
+ */
+export async function createSpecialEvent(
+  propertyId: string,
+  ownerId: string,
+  input: Omit<SpecialEvent, 'id' | 'property_id' | 'created_at'>,
+): Promise<ServiceResponse<SpecialEvent>> {
+  if (
+    input.price_multiplier !== undefined &&
+    (input.price_multiplier < MIN_PRICE_MULTIPLIER || input.price_multiplier > MAX_PRICE_MULTIPLIER)
+  ) {
+    return {
+      success: false,
+      error: `price_multiplier must be between ${MIN_PRICE_MULTIPLIER} and ${MAX_PRICE_MULTIPLIER}`,
+    };
+  }
+  if (new Date(input.start_date) >= new Date(input.end_date)) {
+    return { success: false, error: 'start_date must be before end_date' };
+  }
+
+  // Verify ownership
+  const { data: property } = await supabase
+    .from('properties')
+    .select('owner_id')
+    .eq('id', propertyId)
+    .single();
+
+  if (!property || (property as { owner_id: string }).owner_id !== ownerId) {
+    return { success: false, error: 'Forbidden' };
   }
 
   const { data, error } = await supabase
-    .from('property_settings')
-    .upsert({ property_id: propertyId, ...settings }, { onConflict: 'property_id' })
-    .select('min_stay_nights, max_stay_nights')
+    .from('special_events')
+    .insert({ property_id: propertyId, ...input })
+    .select()
     .single();
 
   if (error) return { success: false, error: error.message };
-  return { success: true, data: data as { min_stay_nights: number; max_stay_nights?: number | null } };
+  return { success: true, data: data as SpecialEvent };
+}
+
+/**
+ * Delete special event
+ */
+export async function deleteSpecialEvent(
+  propertyId: string,
+  eventId: string,
+  ownerId: string,
+): Promise<ServiceResponse<void>> {
+  // Verify ownership
+  const { data: property } = await supabase
+    .from('properties')
+    .select('owner_id')
+    .eq('id', propertyId)
+    .single();
+
+  if (!property || (property as { owner_id: string }).owner_id !== ownerId) {
+    return { success: false, error: 'Forbidden' };
+  }
+
+  const { error } = await supabase
+    .from('special_events')
+    .delete()
+    .eq('id', eventId)
+    .eq('property_id', propertyId);
+
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+/**
+ * Preview per-day effective prices across a date range with min/max bounds enforced.
+ * Intended for hosts to validate their rule configuration before publishing.
+ */
+export async function previewPricing(
+  propertyId: string,
+  start: string,
+  end: string,
+): Promise<ServiceResponse<{ total: number; breakdown: DayPricing[] }>> {
+  const result = await calculateRangePrice(propertyId, start, end);
+  if (!result.success) return result;
+
+  const bounded = result.data!.breakdown.map((day) => ({
+    ...day,
+    price: day.is_available
+      ? Math.min(MAX_NIGHTLY_PRICE, Math.max(MIN_NIGHTLY_PRICE, day.price))
+      : day.price,
+  }));
+
+  const total =
+    Math.round(bounded.reduce((sum, d) => sum + (d.is_available ? d.price : 0), 0) * 100) / 100;
+
+  return { success: true, data: { total, breakdown: bounded } };
+}
+
+/**
+ * Return a full price quote for a stay: base rate breakdown, dynamic adjustments,
+ * platform fee, and total. The total here is what booking creation will charge.
+ */
+export async function getPropertyQuote(
+  propertyId: string,
+  start: string,
+  end: string,
+): Promise<ServiceResponse<PriceQuote>> {
+  const { data: property, error: propError } = await supabase
+    .from('properties')
+    .select('base_price_per_night')
+    .eq('id', propertyId)
+    .single();
+
+  if (propError || !property) {
+    return { success: false, error: 'Property not found' };
+  }
+
+  const baseRate = (property as { base_price_per_night: number }).base_price_per_night;
+
+  const rangeResult = await calculateRangePrice(propertyId, start, end);
+  if (!rangeResult.success) return { success: false, error: rangeResult.error };
+
+  const { breakdown } = rangeResult.data!;
+  const nights = breakdown.filter((d) => d.is_available).length;
+  const subtotal = Math.round(baseRate * nights * 100) / 100;
+  const dynamicTotal = Math.round(rangeResult.data!.total * 100) / 100;
+  const dynamicAdjustments = Math.round((dynamicTotal - subtotal) * 100) / 100;
+  const platformFee = Math.round(dynamicTotal * PLATFORM_FEE_PCT * 100) / 100;
+  const total = Math.round((dynamicTotal + platformFee) * 100) / 100;
+
+  return {
+    success: true,
+    data: {
+      base_nightly_rate: baseRate,
+      nights,
+      subtotal,
+      dynamic_adjustments: dynamicAdjustments,
+      platform_fee_pct: PLATFORM_FEE_PCT,
+      platform_fee: platformFee,
+      total,
+      breakdown,
+    },
+  };
 }
