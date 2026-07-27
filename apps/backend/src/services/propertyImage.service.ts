@@ -1,5 +1,6 @@
 import { supabase } from '@/config/supabase.js';
 import { uploadImage, deleteImage as deleteStorageImage } from '@/config/supabase-storage.js';
+import * as cache from './cache.service.js';
 import type { ServiceResponse } from './index.js';
 
 export interface PropertyImage {
@@ -55,6 +56,10 @@ export async function addPropertyImage(
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  // Invalidate the cached property detail so the new image is visible immediately.
+  await cache.del(`property:${propertyId}`);
+
   return { success: true, data: data as PropertyImage };
 }
 
@@ -111,6 +116,9 @@ export async function removePropertyImage(
 
   const { error } = await supabase.from('property_images').delete().eq('id', imageId);
   if (error) return { success: false, error: error.message };
+
+  // Invalidate the cached property detail so the removed image is no longer served.
+  await cache.del(`property:${propertyId}`);
 
   // If deleted image was primary, promote next one
   if ((image as PropertyImage).is_primary) {

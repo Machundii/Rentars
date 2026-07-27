@@ -72,9 +72,10 @@ else
 fi
 
 # ── Step 2: Run test suites ───────────────────────────────────────────────────
-run_suite "Property Listing Tests" "${SCRIPT_DIR}/test-property-listing.sh"
-run_suite "Booking Tests"          "${SCRIPT_DIR}/test-booking.sh"
-run_suite "Review Tests"           "${SCRIPT_DIR}/test-review.sh"
+run_suite "Property Listing Tests"    "${SCRIPT_DIR}/test-property-listing.sh"
+run_suite "Booking Tests"            "${SCRIPT_DIR}/test-booking.sh"
+run_suite "Review Tests"             "${SCRIPT_DIR}/test-review.sh"
+run_suite "Full Booking Lifecycle"   "${SCRIPT_DIR}/test-booking-lifecycle.sh"
 
 # ── Final summary ─────────────────────────────────────────────────────────────
 echo ""

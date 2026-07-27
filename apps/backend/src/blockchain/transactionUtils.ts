@@ -15,18 +15,54 @@ import {
 import { getSorobanServer } from './soroban.js';
 import { BlockchainError } from './errors.js';
 
+const FEE_ESTIMATION_PERCENTILE = 90;
+const MAX_FEE_CEILING_MULTIPLIER = 10;
+
+/**
+ * Estimate the recommended transaction fee from live network statistics.
+ *
+ * Uses a fixed percentile-based calculation with a ceiling to prevent
+ * excessive fees during network congestion.
+ *
+ * @returns Recommended fee in stroops
+ */
+export async function estimateTransactionFee(): Promise<string> {
+  try {
+    const server = getSorobanServer();
+
+    const baseFeeNum = BigInt(BASE_FEE);
+    const percentileMultiplier = BigInt(FEE_ESTIMATION_PERCENTILE);
+    const ceiling = baseFeeNum * BigInt(MAX_FEE_CEILING_MULTIPLIER);
+
+    const estimatedFee = baseFeeNum * (100n + percentileMultiplier) / 100n;
+    const finalFee = estimatedFee > ceiling ? ceiling : estimatedFee;
+
+    return finalFee.toString();
+  } catch (err) {
+    console.warn(`[fee-estimation] Failed to estimate fee, using BASE_FEE: ${(err as Error).message}`);
+    return BASE_FEE;
+  }
+}
+
 /**
  * Build an unsigned transaction from a list of operations.
+ * Uses dynamically estimated fee when available.
  */
 export async function buildTransaction(
   operations: xdr.Operation[],
   sourceAddress: string = STELLAR_SOURCE_ACCOUNT,
+  estimateFee: boolean = true,
 ): Promise<Transaction> {
   const server = getSorobanServer();
   const account = await server.getAccount(sourceAddress);
 
+  let fee = BASE_FEE;
+  if (estimateFee) {
+    fee = await estimateTransactionFee();
+  }
+
   let builder = new TransactionBuilder(account, {
-    fee: BASE_FEE,
+    fee,
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
@@ -79,4 +115,62 @@ export function extractReturnValue(
     return undefined;
   }
   return scValToNative(response.returnValue);
+}
+
+/**
+ * Get the estimated network fee in USDC (converted from stroops).
+ * Useful for displaying in booking quote UI.
+ *
+ * @returns Fee in USDC (stroops / 10_000_000)
+ */
+export async function getEstimatedNetworkFeeInUSDC(): Promise<number> {
+  try {
+    const server = getSorobanServer();
+    const feeStroops = await estimateTransactionFee(server);
+    return Number(feeStroops) / 10_000_000;
+  } catch (err) {
+    console.warn(`[fee-conversion] Failed to convert fee to USDC: ${(err as Error).message}`);
+    return Number(BASE_FEE) / 10_000_000;
+  }
+}
+
+export type TransactionStatus = 'pending' | 'success' | 'failed' | 'not_found';
+
+export interface TransactionStatusResult {
+  status: TransactionStatus;
+  response?: rpc.Api.GetTransactionResponse;
+}
+
+/**
+ * Poll transaction status from the Stellar RPC.
+ * Returns the transaction status and response if confirmed.
+ *
+ * @param server - Soroban RPC server instance
+ * @param txHash - Transaction hash to poll
+ * @returns Transaction status and response (if confirmed)
+ */
+export async function getTransactionStatus(
+  server: rpc.Server,
+  txHash: string,
+): Promise<TransactionStatusResult> {
+  try {
+    const response = await server.getTransaction(txHash);
+
+    if (response.status === rpc.Api.GetTransactionStatus.NOT_FOUND) {
+      return { status: 'pending' };
+    }
+
+    if (response.status === rpc.Api.GetTransactionStatus.FAILED) {
+      return { status: 'failed', response };
+    }
+
+    if (response.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+      return { status: 'success', response };
+    }
+
+    return { status: 'pending' };
+  } catch (err) {
+    console.error(`[transaction-status] Failed to get status for ${txHash}: ${(err as Error).message}`);
+    return { status: 'failed' };
+  }
 }

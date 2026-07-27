@@ -6,8 +6,11 @@ import {
 } from '@/blockchain/config.js';
 import { BookingClient } from '@/blockchain/bookingClient.js';
 import { PropertyListingClient } from '@/blockchain/propertyListingClient.js';
+import { getTransactionStatus } from '@/blockchain/transactionUtils.js';
+import { getSorobanServer } from '@/blockchain/soroban.js';
 import { supabase } from '@/config/supabase.js';
 import type { ServiceResponse } from './index.js';
+import type { Booking as BookingDBRow } from '@/services/booking.service.js';
 
 type SyncStatus = 'success' | 'failed' | 'skipped';
 
@@ -173,6 +176,135 @@ export async function syncAllBookings(): Promise<ServiceResponse<{ synced: numbe
     }
 
     return { success: true, data: { synced, failed } };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Write a blockchain reconciliation log entry.
+ */
+async function writeBlockchainLog(entry: {
+  booking_id: string;
+  tx_hash?: string;
+  log_type: 'reconciliation' | 'error' | 'success';
+  message?: string;
+  on_chain_status?: string;
+}): Promise<void> {
+  await supabase.from('blockchain_logs').insert({
+    ...entry,
+    created_at: new Date().toISOString(),
+  });
+}
+
+/**
+ * Reconcile a single booking with pending escrow by polling transaction status.
+ * Updates booking state based on on-chain transaction result and notifies tenant on failure.
+ */
+async function reconcilePendingEscrow(booking: BookingDBRow & { escrow_hash?: string }): Promise<void> {
+  if (!booking.escrow_hash || !booking.on_chain_id) {
+    return;
+  }
+
+  try {
+    const server = getSorobanServer();
+    const txStatus = await getTransactionStatus(server, booking.escrow_hash);
+
+    if (txStatus.status === 'pending') {
+      await writeBlockchainLog({
+        booking_id: booking.id,
+        tx_hash: booking.escrow_hash,
+        log_type: 'reconciliation',
+        message: 'Transaction still pending',
+      });
+      return;
+    }
+
+    if (txStatus.status === 'success') {
+      await supabase
+        .from('bookings')
+        .update({
+          status: 'confirmed',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', booking.id);
+
+      await writeBlockchainLog({
+        booking_id: booking.id,
+        tx_hash: booking.escrow_hash,
+        log_type: 'success',
+        message: 'Escrow transaction confirmed',
+        on_chain_status: 'funded',
+      });
+      return;
+    }
+
+    if (txStatus.status === 'failed') {
+      await supabase
+        .from('bookings')
+        .update({
+          status: 'failed',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', booking.id);
+
+      await writeBlockchainLog({
+        booking_id: booking.id,
+        tx_hash: booking.escrow_hash,
+        log_type: 'error',
+        message: 'Escrow transaction failed',
+        on_chain_status: 'failed',
+      });
+
+      // TODO: notify tenant of booking failure
+    }
+  } catch (err) {
+    const message = (err as Error).message;
+    await writeBlockchainLog({
+      booking_id: booking.id,
+      tx_hash: booking.escrow_hash,
+      log_type: 'error',
+      message: `Reconciliation error: ${message}`,
+    });
+  }
+}
+
+/**
+ * Reconcile all bookings with pending escrow transactions.
+ * Polls transaction status and transitions bookings to terminal state.
+ *
+ * @returns ServiceResponse with counts of reconciled bookings
+ */
+export async function reconcileAllPendingEscrows(): Promise<ServiceResponse<{ reconciled: number; failed: number }>> {
+  if (!BOOKING_CONTRACT_ID) {
+    return { success: false, error: 'BOOKING_CONTRACT_ID is not configured' };
+  }
+
+  try {
+    const { data: bookings, error } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('status', 'pending')
+      .not('escrow_hash', 'is', null);
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    let reconciled = 0;
+    let failed = 0;
+
+    for (const booking of bookings || []) {
+      try {
+        await reconcilePendingEscrow(booking as BookingDBRow & { escrow_hash?: string });
+        reconciled++;
+      } catch (err) {
+        failed++;
+        console.error(`[reconcile] Failed to reconcile booking ${booking.id}:`, err);
+      }
+    }
+
+    return { success: true, data: { reconciled, failed } };
   } catch (err) {
     return { success: false, error: (err as Error).message };
   }

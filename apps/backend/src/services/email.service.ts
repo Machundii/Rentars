@@ -1,14 +1,10 @@
 /**
  * Email service — sends transactional emails via nodemailer (SMTP).
- *
- * All emails are rendered through the shared `emailLayout` module which
- * provides a consistent branded HTML wrapper and a plaintext fallback.
- *
- * Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM, FRONTEND_URL
- * in .env.  Falls back to a no-op when SMTP_HOST is not configured.
+ * Configuration is read from the validated `env` object (see config/env.ts).
+ * Falls back to a no-op console log when SMTP_HOST is not set.
  */
 import nodemailer from 'nodemailer';
-import { renderEmail, escapeHtml } from './emailLayout.js';
+import { env } from '@/config/env.js';
 
 // ─── Data shapes ──────────────────────────────────────────────────────────────
 
@@ -28,42 +24,32 @@ export type PasswordResetEmailData = {
   token: string;
 };
 
-export type EmailVerificationData = {
+type VerificationEmailData = {
   to: string;
-  userName: string;
-  verificationUrl: string;
+  token: string;
 };
 
-// ─── Transport ────────────────────────────────────────────────────────────────
-
 function createTransport() {
-  if (!process.env.SMTP_HOST) return null;
+  if (!env.SMTP_HOST) return null;
 
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT ?? 587),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
+    host: env.SMTP_HOST,
+    port: env.SMTP_PORT,
+    secure: env.SMTP_SECURE,
+    auth:
+      env.SMTP_USER && env.SMTP_PASS
+        ? { user: env.SMTP_USER, pass: env.SMTP_PASS }
+        : undefined,
   });
 }
 
-const FROM = process.env.EMAIL_FROM ?? 'Rentars <no-reply@rentars.app>';
-
-async function send(
-  to: string,
-  subject: string,
-  html: string,
-  text: string,
-): Promise<void> {
+async function send(to: string, subject: string, html: string): Promise<void> {
   const transport = createTransport();
   if (!transport) {
     console.log(`[EmailService] SMTP not configured — skipping email to ${to}: ${subject}`);
     return;
   }
-  await transport.sendMail({ from: FROM, to, subject, html, text });
+  await transport.sendMail({ from: env.EMAIL_FROM, to, subject, html });
 }
 
 // ─── Templates ────────────────────────────────────────────────────────────────
@@ -113,10 +99,17 @@ function bookingDetailsHtml(data: BookingEmailData): string {
 // ─── Public service ───────────────────────────────────────────────────────────
 
 export const emailService = {
-  /**
-   * Sent immediately when a guest creates a booking (status = Pending).
-   * Optional: not security-critical, preference link shown in footer.
-   */
+  async sendVerificationEmail(data: VerificationEmailData): Promise<void> {
+    const verifyUrl = `${env.FRONTEND_URL}/verify-email?token=${data.token}`;
+    await send(
+      data.to,
+      'Verify your Rentars email',
+      `<p>Welcome to Rentars!</p>
+       <p><a href="${verifyUrl}">Click here to verify your email address</a></p>
+       <p>This link expires in 24 hours.</p>`,
+    );
+  },
+
   async sendBookingCreated(data: BookingEmailData): Promise<void> {
     const body = `
       <p style="margin:0 0 16px;font-size:16px;">Hi ${escapeHtml(data.userName)},</p>
@@ -196,71 +189,13 @@ export const emailService = {
    * Password reset — essential / security email, no preference link.
    */
   async sendPasswordResetEmail(data: PasswordResetEmailData): Promise<void> {
-    const resetUrl = `${process.env.FRONTEND_URL ?? 'https://rentars.app'}/reset-password?token=${encodeURIComponent(data.token)}`;
-
-    const body = `
-      <p style="margin:0 0 16px;font-size:16px;">Hi there,</p>
-      <p style="margin:0 0 16px;">
-        Someone requested a password reset for your Rentars account.
-        Click the button below to choose a new password — the link expires in
-        <strong>60 minutes</strong>.
-      </p>
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
-        <tr>
-          <td style="border-radius:8px;background-color:#2563EB;">
-            <a href="${escapeHtml(resetUrl)}"
-               style="display:inline-block;padding:12px 28px;font-size:15px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:8px;">
-              Reset Password
-            </a>
-          </td>
-        </tr>
-      </table>
-      <p style="margin:0;font-size:14px;color:#6B7280;">
-        If you did not request a password reset, you can safely ignore this email.
-        Your password will not be changed.
-      </p>`;
-
-    const { html, text } = renderEmail({
-      title: 'Reset Your Rentars Password',
-      preheader: 'Reset your Rentars password — link expires in 60 minutes.',
-      body,
-      isEssential: true,
-    });
-
-    await send(data.to, 'Reset your Rentars password', html, text);
-  },
-
-  /**
-   * Email address verification — essential / security email, no preference link.
-   */
-  async sendEmailVerification(data: EmailVerificationData): Promise<void> {
-    const body = `
-      <p style="margin:0 0 16px;font-size:16px;">Hi ${escapeHtml(data.userName)},</p>
-      <p style="margin:0 0 16px;">
-        Please verify your email address to finish setting up your Rentars account.
-      </p>
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
-        <tr>
-          <td style="border-radius:8px;background-color:#2563EB;">
-            <a href="${escapeHtml(data.verificationUrl)}"
-               style="display:inline-block;padding:12px 28px;font-size:15px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:8px;">
-              Verify Email Address
-            </a>
-          </td>
-        </tr>
-      </table>
-      <p style="margin:0;font-size:14px;color:#6B7280;">
-        This link expires in 24 hours. If you did not create a Rentars account,
-        you can safely ignore this email.
-      </p>`;
-
-    const { html, text } = renderEmail({
-      title: 'Verify Your Email — Rentars',
-      preheader: 'Verify your email to activate your Rentars account.',
-      body,
-      isEssential: true,
-    });
-
-    await send(data.to, 'Verify your email — Rentars', html, text);
+    const resetUrl = `${env.FRONTEND_URL}/reset-password?token=${data.token}`;
+    await send(
+      data.to,
+      'Reset your Rentars password',
+      `<p>Someone requested a password reset for your Rentars account.</p>
+       <p><a href="${resetUrl}">Click here to reset your password</a></p>
+       <p>This link expires in 60 minutes. If you did not request a reset, you can ignore this email.</p>`,
+    );
   },
 };

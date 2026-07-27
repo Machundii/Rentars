@@ -210,6 +210,23 @@ async function shouldSendEmail(userId: string, type: NotificationType): Promise<
   return typeEnabled !== false;
 }
 
+async function shouldSendPush(userId: string, type: NotificationType): Promise<boolean> {
+  const prefsResult = await getPreferences(userId);
+  if (!prefsResult.success || !prefsResult.data) return true;
+  const prefs = prefsResult.data;
+  if (!prefs.push_notifications) return false;
+  const typeEnabled = prefs.notification_types[type];
+  return typeEnabled !== false;
+}
+
+async function shouldSendInApp(userId: string, type: NotificationType): Promise<boolean> {
+  const prefsResult = await getPreferences(userId);
+  if (!prefsResult.success || !prefsResult.data) return true;
+  const prefs = prefsResult.data;
+  const typeEnabled = prefs.notification_types[type];
+  return typeEnabled !== false;
+}
+
 export async function createNotificationWithEmail(
   userId: string,
   type: NotificationType,
@@ -264,6 +281,44 @@ export async function sendBatchedNotifications(
   }
 
   return { success: true, data: sent };
+}
+
+export async function createNotificationWithAllChannels(
+  userId: string,
+  type: NotificationType,
+  data: Record<string, unknown>
+): Promise<ServiceResponse<void>> {
+  const inAppResult = await createNotification(userId, type, data);
+  if (!inAppResult.success) {
+    return { success: false, error: inAppResult.error };
+  }
+
+  const emailShouldSend = await shouldSendEmail(userId, type);
+  if (emailShouldSend && data.userEmail) {
+    const emailData = {
+      to: String(data.userEmail),
+      userName: String(data.userName ?? ''),
+      propertyTitle: String(data.propertyTitle ?? ''),
+      checkIn: String(data.checkIn ?? ''),
+      checkOut: String(data.checkOut ?? ''),
+      totalPrice: Number(data.totalPrice ?? 0),
+    };
+
+    const emailPromise =
+      type === 'booking_created'
+        ? emailService.sendBookingCreated(emailData)
+        : type === 'booking_confirmed'
+          ? emailService.sendBookingConfirmed(emailData)
+          : type === 'booking_cancelled'
+            ? emailService.sendBookingCancelled(emailData)
+            : Promise.resolve();
+
+    await emailPromise.catch((err) =>
+      console.error(`[NotificationService] Email send failed for type ${type}:`, err)
+    );
+  }
+
+  return { success: true };
 }
 
 export { EMAIL_TEMPLATES };

@@ -48,6 +48,9 @@ export interface Property {
   quiet_hours_start?: string | null;
   quiet_hours_end?: string | null;
   additional_rules?: string | null;
+  // Denormalized rating aggregates
+  average_rating?: number;
+  review_count?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -119,16 +122,33 @@ export async function getAllProperties(): Promise<ServiceResponse<Property[]>> {
 /**
  * Retrieve a single property by its Supabase row ID.
  *
+ * Responses are cached in Redis with a TTL of {@link TTL_ONE} seconds.
+ * Cache is bypassed when the requesting user is the owner of a draft/unpublished
+ * listing so they always see their latest edits. Draft properties are never
+ * written to the cache.
+ *
  * @param id - UUID of the property row.
+ * @param requesterId - Optional ID of the authenticated caller. When provided
+ *   and the property is a draft owned by this caller, the cache is skipped.
  */
-export async function getPropertyById(id: string): Promise<ServiceResponse<Property>> {
+export async function getPropertyById(
+  id: string,
+  requesterId?: string,
+): Promise<ServiceResponse<Property>> {
   if (!id) {
     return { success: false, error: 'Property ID is required' };
   }
 
   const cacheKey = `property:${id}`;
   const cached = await cache.get<Property>(cacheKey);
-  if (cached) return { success: true, data: cached };
+  if (cached) {
+    // Owners always get fresh data for their own draft/unpublished listings.
+    const isDraftOwnedByRequester =
+      requesterId && cached.status === 'draft' && cached.owner_id === requesterId;
+    if (!isDraftOwnedByRequester) {
+      return { success: true, data: cached };
+    }
+  }
 
   const { data, error } = await supabase
     .from('properties')
@@ -140,8 +160,14 @@ export async function getPropertyById(id: string): Promise<ServiceResponse<Prope
     return { success: false, error: 'Property not found' };
   }
 
-  await cache.set(cacheKey, data, TTL_ONE);
-  return { success: true, data: data as Property };
+  const property = data as Property;
+
+  // Draft properties change frequently and are owner-only — do not cache them.
+  if (property.status !== 'draft') {
+    await cache.set(cacheKey, property, TTL_ONE);
+  }
+
+  return { success: true, data: property };
 }
 
 /**

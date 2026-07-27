@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { isDomainError } from '@/types/errors.js';
+import { isDomainError, ValidationError } from '@/types/errors.js';
 import type { DomainError } from '@/types/errors.js';
 
 interface ErrorResponse {
@@ -8,6 +8,11 @@ interface ErrorResponse {
     message: string;
     details?: Record<string, unknown>;
   };
+}
+
+interface ValidationErrorResponse {
+  message: string;
+  fields: Record<string, string[]>;
 }
 
 const ERROR_STATUS_MAP: Record<string, number> = {
@@ -38,6 +43,18 @@ const ERROR_STATUS_MAP: Record<string, number> = {
   // Property errors
   UNAUTHORIZED_OWNER: 403,
   INVALID_PROPERTY_DATA: 400,
+
+  // Validation errors
+  VALIDATION_ERROR: 400,
+  MISSING_REQUIRED_FIELD: 400,
+  INVALID_DATE_FORMAT: 400,
+
+  // Rate limit errors
+  RATE_LIMITED: 429,
+
+  // Infrastructure / timeout
+  REQUEST_TIMEOUT: 504,
+  INTERNAL_SERVER_ERROR: 500,
 };
 
 export function errorMiddleware(
@@ -47,6 +64,16 @@ export function errorMiddleware(
   _next: NextFunction,
 ): void {
   console.error(err.stack);
+
+  if (err instanceof ValidationError) {
+    const response: ValidationErrorResponse = {
+      message: err.message,
+      fields: err.fields,
+    };
+
+    res.status(400).json(response);
+    return;
+  }
 
   if (isDomainError(err)) {
     const domainErr = err as DomainError;
