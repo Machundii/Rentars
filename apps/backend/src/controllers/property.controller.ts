@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import {
   createProperty,
   deleteProperty,
@@ -280,4 +281,145 @@ export async function duplicatePropertyHandler(req: AuthRequest, res: Response):
   }
 
   res.status(201).json(result.data);
+}
+
+// ─── Property view tracking ───────────────────────────────────────────────────
+
+/**
+ * POST /api/v1/properties/:id/view
+ *
+ * Records a deduplicated property view. Called by the frontend when the
+ * property detail page loads.  No auth required — anonymous views are
+ * tracked via a fingerprint derived from the request.
+ */
+export async function recordViewHandler(req: Request, res: Response): Promise<void> {
+  const userAgent = req.headers['user-agent'];
+
+  // Silently succeed for bots — no need to return an error
+  if (isBot(userAgent)) {
+    res.status(204).send();
+    return;
+  }
+
+  const authUser = (req as Request & { user?: { id: string } }).user;
+  const userId   = authUser?.id;
+
+  // Anonymous fingerprint: hash of IP + UA (no PII stored directly)
+  const ip  = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim()
+              ?? req.socket?.remoteAddress
+              ?? 'unknown';
+  const fingerprint = !userId
+    ? crypto.createHash('sha256').update(`${ip}:${userAgent ?? ''}`).digest('hex').slice(0, 16)
+    : undefined;
+
+  // ipHash stored for analytics — hash the IP separately
+  const ipHash = crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
+
+  const result = await recordPropertyView({
+    propertyId:  req.params.id,
+    userId,
+    fingerprint,
+    userAgent,
+    ipHash,
+  });
+
+  if (!result.success) {
+    res.status(500).json({ error: result.error });
+    return;
+  }
+
+  res.status(204).send();
+}
+
+/**
+ * GET /api/v1/properties/:id/views
+ *
+ * Returns the view count and daily breakdown for the property.
+ * Only accessible by the property's owner (host).
+ */
+export async function getViewStatsHandler(req: Request, res: Response): Promise<void> {
+  const authUser = (req as Request & { user?: { id: string } }).user;
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  // Ownership check
+  const propResult = await getPropertyById(req.params.id);
+  if (!propResult.success || !propResult.data) {
+    res.status(404).json({ error: 'Property not found' });
+    return;
+  }
+  if (propResult.data.owner_id !== authUser.id) {
+    res.status(403).json({ error: 'Forbidden: only the property owner can view stats' });
+    return;
+  }
+
+  const days   = req.query.days ? Number(req.query.days) : 30;
+  const result = await getPropertyViewStats(req.params.id, days);
+
+  if (!result.success) {
+    res.status(500).json({ error: result.error });
+    return;
+  }
+
+  // Also include the denormalized total from the property row
+  const countResult = await getPropertyViewCount(req.params.id);
+  const totalFromProperty = countResult.success ? countResult.data?.viewCount : undefined;
+
+  res.json({ ...result.data, totalFromProperty });
+}
+
+// ─── Occupancy heatmap ────────────────────────────────────────────────────────
+
+import { getOccupancyHeatmap } from '@/services/occupancy.service.js';
+
+/**
+ * GET /api/v1/properties/:id/occupancy-heatmap
+ *
+ * Returns daily booked/blocked/available status over a selectable horizon.
+ * Host-only: only the property owner may call this.
+ *
+ * Query params:
+ *   from  - ISO date (YYYY-MM-DD), defaults to today
+ *   to    - ISO date (YYYY-MM-DD), defaults to 3 months from today
+ */
+export async function getOccupancyHeatmapHandler(req: Request, res: Response): Promise<void> {
+  const authUser = (req as Request & { user?: { id: string } }).user;
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  // Ownership check
+  const propResult = await getPropertyById(req.params.id);
+  if (!propResult.success || !propResult.data) {
+    res.status(404).json({ error: 'Property not found' });
+    return;
+  }
+  if (propResult.data.owner_id !== authUser.id) {
+    res.status(403).json({ error: 'Forbidden: only the property owner can view occupancy data' });
+    return;
+  }
+
+  // Default horizon: today → +90 days
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const defaultTo = (() => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + 90);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  const from = (req.query.from as string | undefined) ?? todayStr;
+  const to   = (req.query.to   as string | undefined) ?? defaultTo;
+
+  const result = await getOccupancyHeatmap(req.params.id, from, to);
+
+  if (!result.success) {
+    const status = result.error?.includes('required') || result.error?.includes('Invalid') ? 422 : 500;
+    res.status(status).json({ error: result.error });
+    return;
+  }
+
+  res.json(result.data);
 }

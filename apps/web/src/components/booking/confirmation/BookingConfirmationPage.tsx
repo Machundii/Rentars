@@ -5,7 +5,7 @@ import { useBookingDetails } from '@/hooks/useBookingDetails';
 import { useEscrowStatus } from '@/hooks/useEscrowStatus';
 import EscrowStatusCard from './EscrowStatusCard';
 import AddToCalendar from './AddToCalendar';
-import { Mail, Phone } from 'lucide-react';
+import { Mail, Phone, Download } from 'lucide-react';
 import type { Property } from '@/types/property';
 
 interface BookingConfirmationPageProps {
@@ -31,12 +31,43 @@ function usePropertyDetails(propertyId: string | undefined) {
   return property;
 }
 
+/** Trigger a browser download of the PDF receipt for a booking. */
+function useReceiptDownload() {
+  const [downloading, setDownloading] = useState(false);
+
+  async function downloadReceipt(bookingId: string) {
+    setDownloading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/v1/bookings/${bookingId}/receipt.pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? 'Download failed');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `receipt-${bookingId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return { downloadReceipt, downloading };
+}
+
 export default function BookingConfirmationPage({
   bookingId,
 }: BookingConfirmationPageProps) {
   const { booking, isLoading } = useBookingDetails(bookingId);
   const { escrow } = useEscrowStatus(bookingId);
   const property = usePropertyDetails(booking?.property_id);
+  const { downloadReceipt, downloading } = useReceiptDownload();
 
   if (isLoading) {
     return <div className="text-center py-8">Loading booking details...</div>;

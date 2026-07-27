@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 
 export interface AuthRequest extends Request {
   userId?: string;
+  user?: { id: string; role?: string };
 }
 
 export function authenticate(req: AuthRequest, res: Response, next: NextFunction): void {
@@ -12,8 +13,13 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
     return;
   }
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as { userId: string };
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as {
+      userId: string;
+      role?: string;
+    };
+    // Populate both shapes so legacy code (req.userId) and newer code (req.user.id) work.
     req.userId = decoded.userId;
+    req.user = { id: decoded.userId, role: decoded.role };
     next();
   } catch {
     res.status(401).json({ error: 'Invalid token' });

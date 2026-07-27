@@ -9,6 +9,9 @@ import {
   advancedSearchHandler,
   searchSuggestionsHandler,
   trendingSearchesHandler,
+  recordViewHandler,
+  getViewStatsHandler,
+  getOccupancyHeatmapHandler,
 } from '@/controllers/property.controller.js';
 import { searchPropertiesEndpoint, searchNearbyEndpoint } from '@/controllers/propertySearch.controller.js';
 import {
@@ -57,6 +60,15 @@ router.get('/:id/pricing/preview', authenticate, previewPropertyPricing);
 
 // GET /api/v1/properties/:id
 router.get('/:id', getProperty);
+
+// POST /api/v1/properties/:id/view  (anonymous-friendly, no auth required)
+router.post('/:id/view', recordViewHandler);
+
+// GET /api/v1/properties/:id/views  (host-only stats)
+router.get('/:id/views', authenticate, getViewStatsHandler);
+
+// GET /api/v1/properties/:id/occupancy-heatmap  (host-only)
+router.get('/:id/occupancy-heatmap', authenticate, getOccupancyHeatmapHandler);
 
 // POST /api/v1/properties  (requires email verification)
 router.post('/', authenticate, requireEmailVerified, createPropertyHandler);
