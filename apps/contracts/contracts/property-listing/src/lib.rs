@@ -21,10 +21,23 @@
 //!
 //! For production deployments, EXTEND_TO should be tuned to match the expected
 //! activity cadence of the platform (e.g., 17,280 ledgers ≈ 1 day at 5s/ledger).
+//!
+//! ## Input Validation
+//!
+//! All mutating entry points validate inputs before writing state.
+//! Invalid inputs cause the contract to panic with a descriptive message;
+//! the corresponding [`ContractError`] variant is documented on the enum.
+//!
+//! | Entry point | Validated fields |
+//! |-------------|-----------------|
+//! | `create_listing` | `title` non-empty, `price_per_night` > 0 |
+//! | `update_listing` | same as `create_listing`, plus caller == owner |
+//! | `update_status` | caller == owner |
+//! | `set_rented` | listing must be `Active` |
 
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, contracterror, contracttype, Address, Env, String};
 
 // ─── TTL Constants ────────────────────────────────────────────────────────────
 
@@ -65,14 +78,28 @@ pub enum DataKey {
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
-/// Contract error codes.
-#[contracttype]
-#[derive(Clone, Copy, PartialEq, Debug)]
+/// Contract error codes for the property-listing contract.
+///
+/// ## Validation Rules enforced on every write
+///
+/// | Input | Constraint | Error variant |
+/// |-------|-----------|---------------|
+/// | `title` | Non-empty string (length ≥ 1) | `InvalidInput` |
+/// | `price_per_night` | Strictly positive (> 0) in USDC stroops | `InvalidInput` |
+/// | Caller (`update_listing` / `update_status`) | Must be the original listing owner | `Unauthorized` |
+/// | Listing ID (`get_listing` / `update_listing` / `update_status` / `set_rented`) | Must exist in storage | `NotFound` |
+/// | `set_rented` | Listing must be in `Active` status | `InvalidInput` |
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum ContractError {
+    /// The requested listing ID does not exist in storage.
     NotFound = 1,
+    /// The caller is not the listing owner.
     Unauthorized = 2,
+    /// Reserved — a listing with this identifier already exists.
     AlreadyExists = 3,
+    /// An input field fails validation: empty title or non-positive price.
     InvalidInput = 4,
 }
 
