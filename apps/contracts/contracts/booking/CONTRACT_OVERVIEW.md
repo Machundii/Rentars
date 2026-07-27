@@ -287,6 +287,113 @@ All persistent entries use `extend_ttl(key, TTL_MIN=100, TTL_EXTEND_TO=100)` aft
 
 ---
 
+## Contract Events
+
+The booking contract emits structured events on each state transition. These events allow off-chain services (like the backend sync service) to react to and audit booking changes efficiently via event subscription rather than polling storage.
+
+### Event Topics
+
+All events use a two-level topic structure: `("booking", Symbol::short("<event_name>"))`.
+
+### Event Schemas
+
+#### `booked` — Booking Created
+
+Emitted when a new booking is created.
+
+```
+Topic: ("booking", "booked")
+Data:
+  booking_id: u64 — The unique booking identifier
+  property_id: u64 — The property being booked
+  tenant: Address — The tenant creating the booking
+  property_owner: Address — The property owner
+  check_in: u64 — Check-in Unix timestamp (seconds)
+  check_out: u64 — Check-out Unix timestamp (seconds)
+  total_price: i128 — Total price in USDC stroops
+```
+
+#### `confirmed` — Booking Confirmed
+
+Emitted when admin confirms a booking (status: `Pending` → `Confirmed`).
+
+```
+Topic: ("booking", "confirmed")
+Data:
+  booking_id: u64 — The booking identifier
+  property_id: u64 — The property booked
+  tenant: Address — The tenant
+  property_owner: Address — The property owner
+```
+
+#### `completed` — Booking Completed
+
+Emitted when a booking is marked as completed (status: `Confirmed` → `Completed`).
+
+```
+Topic: ("booking", "completed")
+Data:
+  booking_id: u64 — The booking identifier
+  property_id: u64 — The property booked
+  tenant: Address — The tenant
+  property_owner: Address — The property owner
+```
+
+#### `cancelled` — Booking Cancelled
+
+Emitted when a booking is cancelled. Can be triggered by `cancel_booking` (tenant action) or `update_status` (admin action).
+
+```
+Topic: ("booking", "cancelled")
+Data:
+  booking_id: u64 — The booking identifier
+  property_id: u64 — The property booked
+  tenant: Address — The tenant
+  property_owner: Address — The property owner
+```
+
+#### `disputed` — Booking Disputed
+
+Emitted when a tenant initiates a dispute on a funded booking.
+
+```
+Topic: ("booking", "disputed")
+Data:
+  booking_id: u64 — The booking identifier
+  property_id: u64 — The property booked
+  tenant: Address — The tenant initiating the dispute
+  property_owner: Address — The property owner
+```
+
+#### `escrow_funded` — Escrow Funded
+
+Emitted when escrow is funded for a booking.
+
+```
+Topic: ("booking", "escrow_funded")
+Data:
+  booking_id: u64 — The booking identifier
+  property_id: u64 — The property booked
+  tenant: Address — The tenant funding the escrow
+  amount: i128 — The amount funded in USDC stroops
+```
+
+### Backend Integration
+
+The backend sync service (`apps/backend/src/services/sync.service.ts`) can subscribe to these events via the Stellar Event API to:
+1. Automatically update the `bookings` table in Supabase when bookings change on-chain
+2. Audit all booking lifecycle transitions
+3. Trigger notifications and webhooks based on state changes
+4. Verify consistency between on-chain and off-chain state
+
+Example event filter:
+```
+SELECT: "from_bucket,id,created_at,type,body"
+WHERE: type = "contract" AND body->"contract_data"->0->"symbol" = "booking"
+```
+
+---
+
 ## Error Reference
 
 | Panic message                                  | Trigger                                                          |
