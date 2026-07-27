@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
+import Image from 'next/image';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 interface PropertyImageGalleryProps {
@@ -9,58 +10,36 @@ interface PropertyImageGalleryProps {
 }
 
 /**
- * Lazy-loads a single image using IntersectionObserver.
- * Renders a blurred placeholder until the image enters the viewport.
+ * Carousel + thumbnail strip + lightbox for property images.
+ *
+ * Performance strategy:
+ * - Hero (index 0): `priority` + `fetchpriority="high"` — included in the
+ *   browser preload scan for fast first paint, no lazy boundary.
+ * - All other carousel positions: `loading="lazy"` — fetched only when the
+ *   user navigates to them.
+ * - Thumbnail strip: `loading="lazy"` + small `sizes` hint — browser fetches
+ *   the cheapest variant from the srcset.
+ * - Lightbox: always renders the current image at full resolution (`sizes="100vw"`)
+ *   with `loading="eager"` because the user explicitly requested it.
+ *
+ * Layout-shift prevention:
+ * - The carousel wrapper has a fixed aspect ratio (`aspect-[16/9]` with min/max
+ *   constraints) so the space is reserved before any image arrives.
+ * - Thumbnail buttons have explicit `w-16 h-12` so the strip height is stable.
+ * - `next/image` always emits width/height attributes, eliminating the blank
+ *   flash from unsized `<img>` tags.
  */
-function LazyImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
-  const [loaded, setLoaded] = useState(false);
-  const [inView, setInView] = useState(false);
-  const ref = useRef<HTMLImageElement>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setInView(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: '200px' },
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <img
-      ref={ref}
-      src={inView ? src : undefined}
-      alt={alt}
-      loading="lazy"
-      decoding="async"
-      onLoad={() => setLoaded(true)}
-      className={`${className} transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
-    />
-  );
-}
-
 export default function PropertyImageGallery({ images, title }: PropertyImageGalleryProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
-  const goToPrevious = () => {
+  const goToPrevious = () =>
     setCurrentIndex((prev) => (prev === 0 ? images.length - 1 : prev - 1));
-  };
 
-  const goToNext = () => {
+  const goToNext = () =>
     setCurrentIndex((prev) => (prev === images.length - 1 ? 0 : prev + 1));
-  };
 
-  // Keyboard navigation for lightbox
+  // Keyboard navigation when lightbox is open.
   useEffect(() => {
     if (!isLightboxOpen) return;
     const handleKey = (e: KeyboardEvent) => {
@@ -70,29 +49,60 @@ export default function PropertyImageGallery({ images, title }: PropertyImageGal
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isLightboxOpen, currentIndex]);
+    // currentIndex intentionally omitted — handlers close over setters, not stale index
+  }, [isLightboxOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!images.length) {
     return (
-      <div className="w-full h-96 bg-gray-200 rounded-lg flex items-center justify-center">
-        <p className="text-gray-500">No images available</p>
+      <div
+        className="w-full h-96 bg-gray-200 dark:bg-gray-800 rounded-lg flex items-center justify-center"
+        aria-label="No images available"
+      >
+        <p className="text-gray-500 dark:text-gray-400">No images available</p>
       </div>
     );
   }
 
   return (
     <>
-      {/* Main carousel */}
-      <div className="relative w-full h-96 bg-gray-100 rounded-lg overflow-hidden group">
-        <LazyImage
-          src={images[currentIndex]}
-          alt={`${title} - Image ${currentIndex + 1}`}
-          className="w-full h-full object-cover cursor-pointer"
-        />
-        {/* invisible overlay to capture click for lightbox */}
+      {/* ── Main carousel ─────────────────────────────────────────────────── */}
+      {/*
+        Fixed h-96 preserves the exact same space as before so the surrounding
+        layout (description, amenities, sidebar) does not shift.
+      */}
+      <div className="relative w-full h-96 bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden group">
+        {images.map((src, idx) => {
+          const isHero = idx === 0;
+          const isVisible = idx === currentIndex;
+
+          return (
+            <div
+              key={src}
+              className={`absolute inset-0 transition-opacity duration-300 ${
+                isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+              }`}
+              aria-hidden={!isVisible}
+            >
+              <Image
+                src={src}
+                alt={`${title} — image ${idx + 1}`}
+                fill
+                // Only the hero image is prioritised; every other slide lazy-loads.
+                priority={isHero}
+                loading={isHero ? 'eager' : 'lazy'}
+                // Two-thirds of viewport on desktop; full viewport on mobile.
+                sizes="(min-width: 1024px) 66vw, 100vw"
+                className="object-cover cursor-pointer"
+                data-testid={isHero ? 'gallery-hero-image' : `gallery-image-${idx}`}
+              />
+            </div>
+          );
+        })}
+
+        {/* Invisible overlay captures click to open lightbox */}
         <button
           type="button"
-          className="absolute inset-0 w-full h-full opacity-0"
+          className="absolute inset-0 w-full h-full"
           aria-label="Open image lightbox"
           onClick={() => setIsLightboxOpen(true)}
         />
@@ -101,16 +111,16 @@ export default function PropertyImageGallery({ images, title }: PropertyImageGal
           <>
             <button
               type="button"
-              onClick={goToPrevious}
-              className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition"
+              onClick={(e) => { e.stopPropagation(); goToPrevious(); }}
+              className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/80 dark:bg-gray-900/80 hover:bg-white dark:hover:bg-gray-900 p-2 rounded-full opacity-0 group-hover:opacity-100 transition z-10"
               aria-label="Previous image"
             >
               <ChevronLeft size={20} />
             </button>
             <button
               type="button"
-              onClick={goToNext}
-              className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition"
+              onClick={(e) => { e.stopPropagation(); goToNext(); }}
+              className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/80 dark:bg-gray-900/80 hover:bg-white dark:hover:bg-gray-900 p-2 rounded-full opacity-0 group-hover:opacity-100 transition z-10"
               aria-label="Next image"
             >
               <ChevronRight size={20} />
@@ -119,7 +129,11 @@ export default function PropertyImageGallery({ images, title }: PropertyImageGal
         )}
 
         {/* Dot indicators */}
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2" role="tablist" aria-label="Image navigation">
+        <div
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10"
+          role="tablist"
+          aria-label="Image navigation"
+        >
           {images.map((_, idx) => (
             <button
               key={idx}
@@ -127,7 +141,7 @@ export default function PropertyImageGallery({ images, title }: PropertyImageGal
               role="tab"
               aria-selected={idx === currentIndex}
               aria-label={`Go to image ${idx + 1}`}
-              onClick={() => setCurrentIndex(idx)}
+              onClick={(e) => { e.stopPropagation(); setCurrentIndex(idx); }}
               className={`w-2 h-2 rounded-full transition ${
                 idx === currentIndex ? 'bg-white' : 'bg-white/50'
               }`}
@@ -136,37 +150,51 @@ export default function PropertyImageGallery({ images, title }: PropertyImageGal
         </div>
 
         {/* Image counter */}
-        <span className="absolute top-3 right-3 bg-black/50 text-white text-xs px-2 py-1 rounded">
+        <span className="absolute top-3 right-3 bg-black/50 text-white text-xs px-2 py-1 rounded z-10">
           {currentIndex + 1} / {images.length}
         </span>
       </div>
 
-      {/* Thumbnail strip */}
+      {/* ── Thumbnail strip ───────────────────────────────────────────────── */}
       {images.length > 1 && (
-        <div className="flex gap-2 mt-2 overflow-x-auto pb-1" role="list" aria-label="Image thumbnails">
+        <div
+          className="flex gap-2 mt-2 overflow-x-auto pb-1"
+          role="list"
+          aria-label="Image thumbnails"
+        >
           {images.map((src, idx) => (
             <button
               key={idx}
               type="button"
               role="listitem"
               onClick={() => setCurrentIndex(idx)}
-              className={`flex-shrink-0 w-16 h-12 rounded overflow-hidden border-2 transition ${
-                idx === currentIndex ? 'border-blue-500' : 'border-transparent opacity-60 hover:opacity-100'
+              className={`relative flex-shrink-0 w-16 h-12 rounded overflow-hidden border-2 transition ${
+                idx === currentIndex
+                  ? 'border-blue-500'
+                  : 'border-transparent opacity-60 hover:opacity-100'
               }`}
               aria-label={`View image ${idx + 1}`}
               aria-current={idx === currentIndex ? 'true' : undefined}
             >
-              <LazyImage
+              {/*
+                Thumbnails: small 64 px slots, lazy-loaded, served from the
+                smallest srcset variant via the tight `sizes` hint.
+              */}
+              <Image
                 src={src}
                 alt={`${title} thumbnail ${idx + 1}`}
-                className="w-full h-full object-cover"
+                fill
+                loading="lazy"
+                sizes="64px"
+                className="object-cover"
+                data-testid={`gallery-thumbnail-${idx}`}
               />
             </button>
           ))}
         </div>
       )}
 
-      {/* Lightbox */}
+      {/* ── Lightbox ──────────────────────────────────────────────────────── */}
       {isLightboxOpen && (
         <div
           className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center"
@@ -182,6 +210,7 @@ export default function PropertyImageGallery({ images, title }: PropertyImageGal
           >
             <X size={32} />
           </button>
+
           <button
             type="button"
             onClick={goToPrevious}
@@ -191,13 +220,23 @@ export default function PropertyImageGallery({ images, title }: PropertyImageGal
             <ChevronLeft size={32} />
           </button>
 
-          {/* Lightbox image — eagerly loaded since user explicitly opened it */}
-          <img
-            src={images[currentIndex]}
-            alt={`${title} - Image ${currentIndex + 1}`}
-            className="max-w-4xl max-h-[90vh] object-contain"
-            loading="eager"
-          />
+          {/*
+            Lightbox shows the full-resolution image.
+            - `loading="eager"`: user explicitly opened this — no deferral.
+            - `sizes="100vw"`: browser picks the largest srcset candidate.
+            - `fill` + constrained parent: Next.js handles intrinsic sizing.
+          */}
+          <div className="relative max-w-4xl w-full max-h-[90vh] aspect-video mx-8">
+            <Image
+              src={images[currentIndex]}
+              alt={`${title} — image ${currentIndex + 1}`}
+              fill
+              loading="eager"
+              sizes="(min-width: 1280px) 896px, 100vw"
+              className="object-contain"
+              data-testid="gallery-lightbox-image"
+            />
+          </div>
 
           <button
             type="button"

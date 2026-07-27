@@ -6,6 +6,8 @@ import { Search } from 'lucide-react';
 interface SearchBarProps {
   onSearch: (location: string) => void;
   placeholder?: string;
+  /** Optional controlled value — when provided the input is updated externally (e.g. from reverse geocoding). */
+  value?: string;
 }
 
 export default function SearchBar({
@@ -18,6 +20,13 @@ export default function SearchBar({
 
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Sync external value changes (e.g. reverse-geocoded label) into local state.
+  useEffect(() => {
+    if (controlledValue !== undefined) {
+      setLocation(controlledValue);
+    }
+  }, [controlledValue]);
 
   const handleChange = (value: string) => {
     setLocation(value);

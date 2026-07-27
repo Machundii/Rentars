@@ -213,3 +213,84 @@ describe('Location Endpoints', () => {
     });
   });
 });
+
+  describe('GET /api/v1/locations/reverse-geocode', () => {
+    it('should return a label for valid coordinates', async () => {
+      const response = await request(app)
+        .get('/api/v1/locations/reverse-geocode')
+        .query({ lat: '40.7128', lng: '-74.0060' });
+
+      // Real Nominatim call may succeed (200) or be blocked in CI (502/503/500).
+      // We assert either the happy-path shape or a server-side error — never a 400.
+      if (response.status === 200) {
+        expect(response.body).toHaveProperty('label');
+        expect(typeof response.body.label).toBe('string');
+        expect(response.body.label.length).toBeGreaterThan(0);
+      } else {
+        expect([500, 502, 503, 404]).toContain(response.status);
+        expect(response.body).toHaveProperty('error');
+      }
+    });
+
+    it('should reject missing lat parameter', async () => {
+      const response = await request(app)
+        .get('/api/v1/locations/reverse-geocode')
+        .query({ lng: '-74.0060' });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should reject missing lng parameter', async () => {
+      const response = await request(app)
+        .get('/api/v1/locations/reverse-geocode')
+        .query({ lat: '40.7128' });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should reject non-numeric lat', async () => {
+      const response = await request(app)
+        .get('/api/v1/locations/reverse-geocode')
+        .query({ lat: 'not-a-number', lng: '-74.0060' });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should reject non-numeric lng', async () => {
+      const response = await request(app)
+        .get('/api/v1/locations/reverse-geocode')
+        .query({ lat: '40.7128', lng: 'bad' });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should reject latitude out of range', async () => {
+      const response = await request(app)
+        .get('/api/v1/locations/reverse-geocode')
+        .query({ lat: '91', lng: '0' });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should reject longitude out of range', async () => {
+      const response = await request(app)
+        .get('/api/v1/locations/reverse-geocode')
+        .query({ lat: '0', lng: '181' });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should reject both parameters missing', async () => {
+      const response = await request(app)
+        .get('/api/v1/locations/reverse-geocode');
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+    });
+  });

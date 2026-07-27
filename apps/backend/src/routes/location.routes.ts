@@ -1,12 +1,21 @@
 import { Router } from 'express';
 import {
+  reverseGeocodeAddress,
   geocodeAddress,
   searchNearby,
   getPriceComparison,
 } from '@/controllers/location.controller.js';
-import { validateQuery, geocodeSchema, searchSchema } from '@/validators/location.validator.js';
+import {
+  validateQuery,
+  geocodeSchema,
+  reverseGeocodeSchema,
+  searchSchema,
+} from '@/validators/location.validator.js';
 
 const router = Router();
+
+// GET /api/v1/locations/reverse-geocode?lat=...&lng=...
+router.get('/reverse-geocode', validateQuery(reverseGeocodeSchema), reverseGeocodeAddress);
 
 // GET /api/v1/locations/geocode?address=...
 router.get('/geocode', validateQuery(geocodeSchema), geocodeAddress);
