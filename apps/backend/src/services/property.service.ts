@@ -44,6 +44,9 @@ export interface Property {
   quiet_hours_start?: string | null;
   quiet_hours_end?: string | null;
   additional_rules?: string | null;
+  // Denormalized rating aggregates
+  average_rating?: number;
+  review_count?: number;
   created_at?: string;
   updated_at?: string;
 }
