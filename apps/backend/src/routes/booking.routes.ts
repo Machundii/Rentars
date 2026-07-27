@@ -6,7 +6,7 @@ import {
   deleteBooking,
   getBooking,
   getBookingCalendar,
-  getBookingReceipt,
+  listUserBookings,
   updateBooking,
 } from '@/controllers/booking.controller.js';
 import { authenticate } from '@/middleware/auth.middleware.js';
@@ -19,6 +19,9 @@ import {
 } from '@/validators/booking.validator.js';
 
 const router = Router();
+
+// GET /api/v1/bookings — list current user's bookings (cursor pagination)
+router.get('/', authenticate, listUserBookings);
 
 // GET /api/v1/bookings/:id
 router.get('/:id', authenticate, getBooking);

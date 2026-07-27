@@ -2,9 +2,32 @@ import type { Request, Response } from 'express';
 import { BookingService } from '@/services/booking.service.js';
 import { getPropertyById } from '@/services/property.service.js';
 import { generateIcs } from '@/utils/ics.js';
-import { fetchReceiptData, generateReceiptPdf } from '@/services/receipt.service.js';
+import type { AuthRequest } from '@/middleware/auth.middleware.js';
 
 const bookingService = new BookingService();
+
+export async function listUserBookings(req: AuthRequest, res: Response): Promise<void> {
+  const userId = req.userId;
+  if (!userId) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : null;
+  const limit = req.query.limit ? Number(req.query.limit) : 20;
+
+  if (Number.isNaN(limit) || limit < 1) {
+    res.status(422).json({ error: 'limit must be a positive integer' });
+    return;
+  }
+
+  const result = await bookingService.getUserBookings(userId, cursor, limit);
+  if (!result.success) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.json(result.data);
+}
 
 export async function getBooking(req: Request, res: Response): Promise<void> {
   const result = await bookingService.getBookingById(req.params.id);
