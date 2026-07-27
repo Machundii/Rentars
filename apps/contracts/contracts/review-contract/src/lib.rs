@@ -1,8 +1,15 @@
 //! Review Contract for Rentars
 //!
 //! Allows tenants to submit on-chain reviews for users (owners/properties).
-//! Enforces: rating 1–5, one review per reviewer per subject, unique IDs,
-//! and per-subject review indexes.
+//!
+//! ## On-chain Guarantees
+//!
+//! | Invariant | Enforcement |
+//! |-----------|------------|
+//! | Rating in **\[1, 5\]** (inclusive) | Validated before any state is written; panics with [`ContractError::InvalidRating`] on violation |
+//! | One review per `(reviewer, reviewee)` pair | Duplicate-prevention flag checked atomically; panics with [`ContractError::DuplicateReview`] |
+//! | Globally unique, monotonically-increasing IDs | Counter stored in persistent storage |
+//! | Per-reviewee review index | `UserReviews(reviewee)` vec appended on every submit |
 //!
 //! ## Storage TTL Strategy
 //!
@@ -24,7 +31,7 @@
 
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, vec, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, contracterror, contracttype, vec, Address, Env, String, Vec};
 
 // ─── TTL Constants ────────────────────────────────────────────────────────────
 
@@ -63,6 +70,30 @@ pub enum DataKey {
     UserReviews(Address),
     /// Duplicate-prevention flag: (reviewer, reviewee) → bool.
     HasReviewed(Address, Address),
+}
+
+// ─── Errors ──────────────────────────────────────────────────────────────────
+
+/// Contract error codes for the review contract.
+///
+/// ## Rating Range Enforcement
+///
+/// The `rating` field is validated on-chain before any state is written.
+/// Only values in the **inclusive range 1–5** are accepted.
+/// Ratings outside this range are rejected with [`ContractError::InvalidRating`].
+///
+/// | Code | Variant | Trigger |
+/// |------|---------|---------|
+/// | 1 | `InvalidRating` | `rating` < 1 or `rating` > 5 |
+/// | 2 | `DuplicateReview` | same `(reviewer, reviewee)` pair has already reviewed |
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum ContractError {
+    /// Rating is outside the valid inclusive range 1–5.
+    InvalidRating = 1,
+    /// Reviewer has already submitted a review for this reviewee.
+    DuplicateReview = 2,
 }
 
 // ─── Contract ────────────────────────────────────────────────────────────────

@@ -29,6 +29,8 @@ import {
   type Property,
 } from '../../src/services/property.service.js';
 
+const TTL_ONE = 300; // matches property.service.ts
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('property.service', () => {
@@ -239,6 +241,131 @@ describe('property.service', () => {
       const result = await searchProperties({});
       expect(result.success).toBe(false);
       expect(result.error).toBe('Search failed');
+    });
+  });
+
+  // ── getPropertyById — cache behaviour ───────────────────────────────────────
+
+  describe('getPropertyById cache behaviour', () => {
+    beforeEach(() => {
+      mockFrom.mockClear();
+      // Reset cache mocks before each test
+      (cacheMod as any).get = mock(async () => null);
+      (cacheMod as any).set = mock(async () => {});
+    });
+
+    it('returns cached property without calling Supabase on cache hit', async () => {
+      const cachedProp = { id: 'p1', title: 'Cached', status: 'available', owner_id: 'o1' } as Property;
+      (cacheMod as any).get = mock(async () => cachedProp);
+
+      const result = await getPropertyById('p1');
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(cachedProp);
+      expect(mockFrom).not.toHaveBeenCalled();
+    });
+
+    it('stores a non-draft property in cache on cache miss', async () => {
+      const prop = { id: 'p1', title: 'Available', status: 'available', owner_id: 'o1' } as Property;
+      (cacheMod as any).get = mock(async () => null);
+      const setMock = mock(async () => {});
+      (cacheMod as any).set = setMock;
+
+      mockFrom.mockImplementation(() => ({
+        select: mock(() => ({
+          eq: mock(() => ({ single: mock(async () => ({ data: prop, error: null })) })),
+        })),
+      }));
+
+      await getPropertyById('p1');
+
+      expect(setMock.mock.calls.length).toBe(1);
+      expect(setMock.mock.calls[0][0]).toBe('property:p1');
+      expect(setMock.mock.calls[0][2]).toBe(TTL_ONE);
+    });
+
+    it('bypasses cached draft and fetches fresh data when requester is the owner', async () => {
+      const draftProp = { id: 'd1', title: 'My Draft', status: 'draft', owner_id: 'owner-1' } as Property;
+      (cacheMod as any).get = mock(async () => draftProp);
+      const setMock = mock(async () => {});
+      (cacheMod as any).set = setMock;
+
+      mockFrom.mockImplementation(() => ({
+        select: mock(() => ({
+          eq: mock(() => ({ single: mock(async () => ({ data: draftProp, error: null })) })),
+        })),
+      }));
+
+      const result = await getPropertyById('d1', 'owner-1');
+
+      expect(result.success).toBe(true);
+      expect(mockFrom).toHaveBeenCalled();
+      expect(setMock.mock.calls.length).toBe(0);
+    });
+
+    it('does not store a draft property in cache on cache miss', async () => {
+      const draftProp = { id: 'd1', title: 'Draft', status: 'draft', owner_id: 'owner-1' } as Property;
+      (cacheMod as any).get = mock(async () => null);
+      const setMock = mock(async () => {});
+      (cacheMod as any).set = setMock;
+
+      mockFrom.mockImplementation(() => ({
+        select: mock(() => ({
+          eq: mock(() => ({ single: mock(async () => ({ data: draftProp, error: null })) })),
+        })),
+      }));
+
+      await getPropertyById('d1', 'owner-1');
+
+      expect(setMock.mock.calls.length).toBe(0);
+    });
+
+    it('serves cached draft to a non-owner without hitting Supabase', async () => {
+      const draftProp = { id: 'd1', title: 'Draft', status: 'draft', owner_id: 'owner-1' } as Property;
+      (cacheMod as any).get = mock(async () => draftProp);
+
+      const result = await getPropertyById('d1', 'not-the-owner');
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(draftProp);
+      expect(mockFrom).not.toHaveBeenCalled();
+    });
+
+    it('invalidates cache on property update', async () => {
+      const updatedProp = { ...mockProperties[0], price_per_night: 999 };
+      const delMock = mock(async () => {});
+      (cacheMod as any).del = delMock;
+
+      mockFrom.mockImplementation(() => ({
+        update: mock(() => ({
+          eq: mock(() => ({
+            select: mock(() => ({
+              single: mock(async () => ({ data: updatedProp, error: null })),
+            })),
+          })),
+        })),
+      }));
+
+      await updateProperty(mockProperties[0].id, { price_per_night: 999 });
+
+      const deletedKeys = delMock.mock.calls.map((c: unknown[]) => c[0]);
+      expect(deletedKeys).toContain(`property:${mockProperties[0].id}`);
+    });
+
+    it('invalidates cache on property delete', async () => {
+      const delMock = mock(async () => {});
+      (cacheMod as any).del = delMock;
+
+      mockFrom.mockImplementation(() => ({
+        delete: mock(() => ({
+          eq: mock(async () => ({ error: null })),
+        })),
+      }));
+
+      await deleteProperty('prop-to-delete');
+
+      const deletedKeys = delMock.mock.calls.map((c: unknown[]) => c[0]);
+      expect(deletedKeys).toContain('property:prop-to-delete');
     });
   });
 });
