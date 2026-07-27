@@ -10,11 +10,13 @@ import {
   moderateReviewHandler,
   listFlaggedReviews,
 } from '../controllers/review.controller.js';
+import { validateBody } from '../validators/booking.validator.js';
+import { createReviewSchema } from '../validators/review.validator.js';
 
 const router = Router();
 
 // POST /api/reviews
-router.post('/', authenticate, createReview);
+router.post('/', authenticate, validateBody(createReviewSchema), createReview);
 
 // GET /api/reviews/property/:id
 router.get('/property/:id', getPropertyReviews);
