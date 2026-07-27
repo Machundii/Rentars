@@ -61,7 +61,7 @@ export async function getFeatured(_req: Request, res: Response): Promise<void> {
 // ─── Single property ──────────────────────────────────────────────────────────
 
 export async function getProperty(req: Request, res: Response): Promise<void> {
-  const result = await getPropertyById(req.params.id);
+  const result = await getPropertyById(req.params.id, req.userId);
 
   if (!result.success) {
     res.status(404).json({ error: result.error });
