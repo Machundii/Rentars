@@ -90,36 +90,36 @@ export default function AvailabilityCalendar({
   const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <button
           onClick={handlePrevMonth}
-          className="p-2 hover:bg-gray-100 rounded-lg transition"
+          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition"
           aria-label="Previous month"
         >
-          <ChevronLeft size={20} />
+          <ChevronLeft size={20} className="text-gray-700 dark:text-gray-300" />
         </button>
-        <h2 className="text-xl font-semibold">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
           {monthName} {year}
         </h2>
         <button
           onClick={handleNextMonth}
-          className="p-2 hover:bg-gray-100 rounded-lg transition"
+          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition"
           aria-label="Next month"
         >
-          <ChevronRight size={20} />
+          <ChevronRight size={20} className="text-gray-700 dark:text-gray-300" />
         </button>
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-gray-500">Loading calendar...</div>
+        <div className="text-center py-12 text-gray-500 dark:text-gray-400">Loading calendar...</div>
       ) : (
         <>
           {/* Day headers */}
           <div className="grid grid-cols-7 gap-2 mb-2">
             {daysOfWeek.map((day) => (
-              <div key={day} className="text-center font-semibold text-sm text-gray-600 py-2">
+              <div key={day} className="text-center font-semibold text-sm text-gray-600 dark:text-gray-400 py-2">
                 {day}
               </div>
             ))}
@@ -141,8 +141,14 @@ export default function AvailabilityCalendar({
                   className={`
                     relative p-2 rounded-lg text-sm font-medium transition
                     ${isSelected ? 'bg-blue-600 text-white' : ''}
-                    ${isInRange ? 'bg-blue-100' : ''}
-                    ${!isAvailable ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'cursor-pointer hover:bg-blue-50'}
+                    ${isInRange ? 'bg-blue-100 dark:bg-blue-900' : ''}
+                    ${
+                      !isAvailable
+                        ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed'
+                        : !isSelected && !isInRange
+                        ? 'text-gray-800 dark:text-gray-200 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950'
+                        : ''
+                    }
                   `}
                 >
                   {day.date.split('-')[2]}
@@ -153,17 +159,17 @@ export default function AvailabilityCalendar({
           </div>
 
           {/* Legend */}
-          <div className="mt-6 flex flex-wrap gap-4 text-sm">
+          <div className="mt-6 flex flex-wrap gap-4 text-sm text-gray-700 dark:text-gray-300">
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-blue-600 rounded" />
               <span>Selected</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-blue-100 rounded" />
+              <div className="w-4 h-4 bg-blue-100 dark:bg-blue-900 rounded" />
               <span>In range</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-gray-100 rounded flex items-center justify-center">
+              <div className="w-4 h-4 bg-gray-100 dark:bg-gray-800 rounded flex items-center justify-center">
                 <Lock size={10} />
               </div>
               <span>Unavailable</span>
@@ -172,10 +178,10 @@ export default function AvailabilityCalendar({
 
           {/* Range info */}
           {selectedRange.start && (
-            <div className="mt-4 p-3 bg-blue-50 rounded-lg flex items-start gap-2">
+            <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg flex items-start gap-2">
               <AlertCircle size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
               <div className="text-sm">
-                <p className="font-medium text-blue-900">
+                <p className="font-medium text-blue-900 dark:text-blue-200">
                   Check-in: {selectedRange.start} {selectedRange.end ? `→ Check-out: ${selectedRange.end}` : '(select checkout)'}
                 </p>
               </div>

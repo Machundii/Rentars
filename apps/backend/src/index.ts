@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import { errorMiddleware } from './middleware/error.middleware';
 import { rateLimiter } from './middleware/rateLimiter';
+import { timeoutMiddleware } from './middleware/timeout.middleware';
 import authRoutes from './routes/auth.routes';
 import bookingRoutes from './routes/booking.routes';
 import propertyRoutes from './routes/property.routes';
@@ -25,6 +26,7 @@ app.use(
   })
 );
 app.use(rateLimiter);
+app.use(timeoutMiddleware);
 app.use(requestLoggingMiddleware);
 
 // Routes

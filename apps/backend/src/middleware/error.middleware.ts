@@ -43,6 +43,18 @@ const ERROR_STATUS_MAP: Record<string, number> = {
   // Property errors
   UNAUTHORIZED_OWNER: 403,
   INVALID_PROPERTY_DATA: 400,
+
+  // Validation errors
+  VALIDATION_ERROR: 400,
+  MISSING_REQUIRED_FIELD: 400,
+  INVALID_DATE_FORMAT: 400,
+
+  // Rate limit errors
+  RATE_LIMITED: 429,
+
+  // Infrastructure / timeout
+  REQUEST_TIMEOUT: 504,
+  INTERNAL_SERVER_ERROR: 500,
 };
 
 export function errorMiddleware(
