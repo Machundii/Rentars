@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getNotificationPreferences,
+  getPreferencesByToken,
   listNotifications,
   readAllNotifications,
   readNotification,
@@ -8,6 +9,7 @@ import {
   removeNotification,
   unregisterPushSubscription,
   updateNotificationPreferences,
+  updatePreferencesByToken,
 } from '../controllers/notification.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
@@ -25,11 +27,17 @@ router.patch('/:id/read', authenticate, readNotification);
 // DELETE /api/v1/notifications/:id
 router.delete('/:id', authenticate, removeNotification);
 
-// GET /api/v1/notifications/preferences
+// GET /api/v1/notifications/preferences  (authenticated)
 router.get('/preferences', authenticate, getNotificationPreferences);
 
-// PATCH /api/v1/notifications/preferences
+// PATCH /api/v1/notifications/preferences  (authenticated)
 router.patch('/preferences', authenticate, updateNotificationPreferences);
+
+// GET  /api/v1/notifications/manage-preferences?token=...  (token-based, no login)
+router.get('/manage-preferences', getPreferencesByToken);
+
+// PATCH /api/v1/notifications/manage-preferences?token=...  (token-based, no login)
+router.patch('/manage-preferences', updatePreferencesByToken);
 
 // POST /api/v1/notifications/push/subscribe
 router.post('/push/subscribe', authenticate, registerPushSubscription);
