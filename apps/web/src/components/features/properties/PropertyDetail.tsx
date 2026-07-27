@@ -6,6 +6,7 @@ import PropertyImageGallery from './PropertyImageGallery';
 import PropertyMap from './PropertyMap';
 import PropertyCalendar from './PropertyCalendar';
 import PropertyReviewsSection from './PropertyReviewsSection';
+import FollowButton from './FollowButton';
 import { useTranslations } from '@/lib/i18n/useTranslations';
 import { useLocale } from '@/lib/i18n/useLocale';
 import { formatCurrency } from '@/lib/i18n/formatting';
@@ -16,6 +17,7 @@ interface PropertyDetailProps {
     amenities?: string[];
     description_full?: string;
     host_name?: string;
+    host_id?: string;
     host_image?: string;
     reviews?: Array<{ id: string; author: string; rating: number; comment: string; date: string }>;
     average_rating?: number;
@@ -255,10 +257,18 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
                   className="w-16 h-16 rounded-full object-cover"
                 />
               )}
-              <div>
+              <div className="flex-1">
                 <p className="font-semibold text-lg text-gray-900 dark:text-white">{property.host_name || 'Host'}</p>
                 <p className="text-gray-600 dark:text-gray-400">{t('verifiedHost')}</p>
               </div>
+              {/* Follow / unfollow the host — uses host_id when available,
+                  falls back to owner_id from the property row */}
+              {(property.host_id || property.owner_id) && (
+                <FollowButton
+                  hostId={(property.host_id || property.owner_id) as string}
+                  className="ml-auto"
+                />
+              )}
             </div>
           </div>
         </div>

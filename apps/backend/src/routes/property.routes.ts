@@ -5,6 +5,7 @@ import {
   duplicatePropertyHandler,
   getProperties,
   getProperty,
+  getPropertyBySlugHandler,
   updatePropertyHandler,
   advancedSearchHandler,
   searchSuggestionsHandler,
@@ -51,6 +52,10 @@ router.get('/search/suggestions', searchSuggestionsHandler);
 
 // GET /api/v1/properties/search/trending - Trending searches
 router.get('/search/trending', trendingSearchesHandler);
+
+// GET /api/v1/properties/by-slug/:slug - Look up property by human-readable slug
+// Must be registered before /:id so "by-slug" is not treated as an id
+router.get('/by-slug/:slug', getPropertyBySlugHandler);
 
 // GET /api/v1/properties/:id/quote?start=&end=  — itemized price quote (public)
 router.get('/:id/quote', getPropertyQuoteHandler);

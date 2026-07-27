@@ -11,6 +11,7 @@ import * as cache from './cache.service.js';
 import type { ServiceResponse } from './index.js';
 import { CANONICAL_AMENITIES } from '@/types/amenities.js';
 import { sanitizeLongText, sanitizeShortText } from '@/utils/sanitize.js';
+import { generateSlug } from '@/utils/slug.js';
 
 const TTL_ALL = 60;
 const TTL_ONE = 300;
@@ -51,8 +52,29 @@ export interface Property {
   // Denormalized rating aggregates
   average_rating?: number;
   review_count?: number;
+  // Featured listing window (migration 00022)
+  // A property is currently featured when featured_until > NOW()
+  featured_until?: string | null;
+  featured_weight?: number;
+  // Human-readable URL slug (migration 00024)
+  slug?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+/**
+ * Maximum number of featured listings surfaced in a single response.
+ * Enforced by getFeaturedProperties and searchPropertiesWithFeatured.
+ */
+export const FEATURED_CAP = 6;
+
+/**
+ * Returns true when a property is currently within its feature window.
+ * Works purely from the in-memory object — no DB round-trip needed.
+ */
+export function isFeaturedNow(property: Pick<Property, 'featured_until'>): boolean {
+  if (!property.featured_until) return false;
+  return new Date(property.featured_until) > new Date();
 }
 
 /** Fields that are copied when duplicating a property. */
@@ -207,12 +229,44 @@ export async function createProperty(
     return { success: false, error: error.message };
   }
 
+  const property = data as Property;
+
+  // Generate and persist the URL slug now that we have the row id
+  const slug = generateSlug(property.title, property.city, property.id);
+  const { error: slugErr } = await supabase
+    .from('properties')
+    .update({ slug })
+    .eq('id', property.id);
+
+  if (!slugErr) {
+    property.slug = slug;
+  } else {
+    console.error('[createProperty] Failed to set slug:', slugErr.message);
+  }
+
   await Promise.all([
     cache.del('properties:all'),
     cache.del('properties:featured'),
   ]);
 
-  return { success: true, data: data as Property };
+  // Fan-out new-property notifications to the host's followers when the
+  // property is published (status === 'available').  Fire-and-forget so
+  // a notification failure never blocks the create response.
+  if (property.status === 'available' && property.owner_id) {
+    import('./notification.service.js').then(({ notifyHostFollowers }) => {
+      notifyHostFollowers({
+        propertyId:    property.id,
+        propertyTitle: property.title,
+        propertySlug:  property.slug ?? property.id,
+        hostId:        property.owner_id!,
+        hostName:      property.owner_id!, // caller may enrich via profile lookup
+      }).catch((err) =>
+        console.error('[createProperty] notifyHostFollowers failed:', err),
+      );
+    });
+  }
+
+  return { success: true, data: property };
 }
 
 /**
@@ -261,13 +315,44 @@ export async function updateProperty(
     return { success: false, error: error.message };
   }
 
+  const updated = data as Property;
+
+  // If the property has no slug yet (legacy row), generate one now
+  if (!updated.slug) {
+    const slug = generateSlug(updated.title, updated.city, updated.id);
+    const { error: slugErr } = await supabase
+      .from('properties')
+      .update({ slug })
+      .eq('id', id);
+    if (!slugErr) updated.slug = slug;
+  }
+
   await Promise.all([
     cache.del(`property:${id}`),
     cache.del('properties:all'),
     cache.del('properties:featured'),
   ]);
 
-  return { success: true, data: data as Property };
+  // Fan-out new-property notifications when a draft is published
+  // (status transitions to 'available' in this update).
+  const wasJustPublished =
+    payload.status === 'available' && updated.status === 'available' && updated.owner_id;
+
+  if (wasJustPublished) {
+    import('./notification.service.js').then(({ notifyHostFollowers }) => {
+      notifyHostFollowers({
+        propertyId:    updated.id,
+        propertyTitle: updated.title,
+        propertySlug:  updated.slug ?? updated.id,
+        hostId:        updated.owner_id!,
+        hostName:      updated.owner_id!,
+      }).catch((err) =>
+        console.error('[updateProperty] notifyHostFollowers failed:', err),
+      );
+    });
+  }
+
+  return { success: true, data: updated };
 }
 
 /**
@@ -296,28 +381,162 @@ export async function deleteProperty(id: string): Promise<ServiceResponse<void>>
 }
 
 /**
- * Search properties with optional filters.
+ * Retrieve a single property by its URL slug.
+ *
+ * The slug uniquely identifies a property (see migration 00024).
+ * Results are cached on the same `property:{id}` key as `getPropertyById`
+ * so the two lookups share the same cache entry.
+ *
+ * @param slug - The URL slug (e.g. "cozy-loft-downtown-paris-a1b2c3").
+ */
+export async function getPropertyBySlug(
+  slug: string,
+): Promise<ServiceResponse<Property>> {
+  if (!slug) {
+    return { success: false, error: 'Slug is required' };
+  }
+
+  const { data, error } = await supabase
+    .from('properties')
+    .select('*')
+    .eq('slug', slug)
+    .single();
+
+  if (error) {
+    return { success: false, error: 'Property not found' };
+  }
+
+  const property = data as Property;
+
+  // Warm the id-based cache entry so subsequent id lookups are fast
+  if (property.status !== 'draft') {
+    await cache.set(`property:${property.id}`, property, TTL_ONE);
+  }
+
+  return { success: true, data: property };
+}
+
+
  *
  * Applies only the filters that are present in the `filters` object.
  * Price filters use `gte`/`lte` on `price_per_night`.
  *
  * @param filters - Optional filter criteria.
  */
-export async function getFeaturedProperties(): Promise<ServiceResponse<Property[]>> {
-  const cached = await cache.get<Property[]>('properties:featured');
+export async function getFeaturedProperties(
+  limit = FEATURED_CAP,
+): Promise<ServiceResponse<Property[]>> {
+  const cap = Math.min(limit, FEATURED_CAP);
+  const cacheKey = `properties:featured:${cap}`;
+  const cached = await cache.get<Property[]>(cacheKey);
   if (cached) return { success: true, data: cached };
+
+  const now = new Date().toISOString();
 
   const { data, error } = await supabase
     .from('properties')
     .select('*')
     .eq('status', 'available')
-    .order('created_at', { ascending: false })
-    .limit(12);
+    .not('featured_until', 'is', null)
+    .gt('featured_until', now)
+    .order('featured_weight', { ascending: false })
+    .order('featured_until', { ascending: false })
+    .limit(cap);
 
   if (error) return { success: false, error: error.message };
 
-  await cache.set('properties:featured', data, TTL_FEATURED);
-  return { success: true, data: data as Property[] };
+  const properties = (data ?? []) as Property[];
+  await cache.set(cacheKey, properties, TTL_FEATURED);
+  return { success: true, data: properties };
+}
+
+/**
+ * Mark a property as featured until the given timestamp.
+ *
+ * Admin-only.  The caller is responsible for verifying the requester has
+ * admin privileges before calling this function.
+ *
+ * @param propertyId   - UUID of the property to feature.
+ * @param featuredUntil - ISO 8601 datetime string; must be in the future.
+ * @param weight        - Optional ordering tiebreaker (default 0).
+ */
+export async function setFeatured(
+  propertyId: string,
+  featuredUntil: string,
+  weight = 0,
+): Promise<ServiceResponse<Property>> {
+  if (!propertyId) {
+    return { success: false, error: 'Property ID is required' };
+  }
+
+  const until = new Date(featuredUntil);
+  if (Number.isNaN(until.getTime())) {
+    return { success: false, error: 'featuredUntil must be a valid ISO 8601 datetime' };
+  }
+  if (until <= new Date()) {
+    return { success: false, error: 'featuredUntil must be a future date' };
+  }
+
+  const { data, error } = await supabase
+    .from('properties')
+    .update({
+      featured_until: until.toISOString(),
+      featured_weight: weight,
+    })
+    .eq('id', propertyId)
+    .select()
+    .single();
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  // Bust all featured-cap variants and the individual property cache
+  await Promise.all([
+    cache.del(`property:${propertyId}`),
+    cache.del('properties:featured'),
+    ...Array.from({ length: FEATURED_CAP }, (_, i) =>
+      cache.del(`properties:featured:${i + 1}`),
+    ),
+  ]);
+
+  return { success: true, data: data as Property };
+}
+
+/**
+ * Remove the featured status from a property immediately.
+ *
+ * Admin-only.  Sets featured_until to NULL and featured_weight to 0.
+ *
+ * @param propertyId - UUID of the property to unfeature.
+ */
+export async function clearFeatured(
+  propertyId: string,
+): Promise<ServiceResponse<Property>> {
+  if (!propertyId) {
+    return { success: false, error: 'Property ID is required' };
+  }
+
+  const { data, error } = await supabase
+    .from('properties')
+    .update({ featured_until: null, featured_weight: 0 })
+    .eq('id', propertyId)
+    .select()
+    .single();
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  await Promise.all([
+    cache.del(`property:${propertyId}`),
+    cache.del('properties:featured'),
+    ...Array.from({ length: FEATURED_CAP }, (_, i) =>
+      cache.del(`properties:featured:${i + 1}`),
+    ),
+  ]);
+
+  return { success: true, data: data as Property };
 }
 
 export async function searchProperties(
