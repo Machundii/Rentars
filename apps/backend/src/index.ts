@@ -8,6 +8,8 @@ import bookingRoutes from './routes/booking.routes';
 import propertyRoutes from './routes/property.routes';
 import locationRoutes from './routes/location.routes';
 import { setupOpenApiRoutes } from './config/swagger';
+import { validateBlockchainConfig } from './blockchain/config.js';
+import { startSyncScheduler } from './services/cleanup-schedular.js';
 
 dotenv.config();
 
@@ -43,6 +45,15 @@ app.get('/health', (_req, res) => {
 setupOpenApiRoutes(app);
 
 app.use(errorMiddleware);
+
+const configErrors = validateBlockchainConfig();
+if (configErrors.length > 0) {
+  const errorDetails = configErrors
+    .map((err) => `  - ${err.field}: ${err.message}`)
+    .join('\n');
+  console.error('❌ Blockchain configuration validation failed:\n' + errorDetails);
+  process.exit(1);
+}
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 app.listen(PORT, () => {
