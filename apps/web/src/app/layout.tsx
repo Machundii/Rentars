@@ -28,6 +28,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang={initialLocale}>
       <body className={inter.className}>
+        <a href="#main-content" className="skip-nav">
+          Skip to main content
+        </a>
         <I18nProvider initialLocale={initialLocale}>
           <AuthProvider>
             <OfflineBanner />

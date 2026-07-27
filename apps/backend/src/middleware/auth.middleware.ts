@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import { env } from '@/config/env.js';
 
 export interface AuthRequest extends Request {
   userId?: string;
@@ -12,7 +13,7 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
     return;
   }
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as { userId: string };
+    const decoded = jwt.verify(token, env.JWT_SECRET) as { userId: string };
     req.userId = decoded.userId;
     next();
   } catch {

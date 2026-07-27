@@ -1,9 +1,10 @@
 /**
  * Email service — sends transactional emails via nodemailer (SMTP).
- * Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM in .env.
- * Falls back to a no-op when SMTP_HOST is not configured.
+ * Configuration is read from the validated `env` object (see config/env.ts).
+ * Falls back to a no-op console log when SMTP_HOST is not set.
  */
 import nodemailer from 'nodemailer';
+import { env } from '@/config/env.js';
 
 type BookingEmailData = {
   to: string;
@@ -19,21 +20,24 @@ type PasswordResetEmailData = {
   token: string;
 };
 
+type VerificationEmailData = {
+  to: string;
+  token: string;
+};
+
 function createTransport() {
-  if (!process.env.SMTP_HOST) return null;
+  if (!env.SMTP_HOST) return null;
 
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT ?? 587),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
+    host: env.SMTP_HOST,
+    port: env.SMTP_PORT,
+    secure: env.SMTP_SECURE,
+    auth:
+      env.SMTP_USER && env.SMTP_PASS
+        ? { user: env.SMTP_USER, pass: env.SMTP_PASS }
+        : undefined,
   });
 }
-
-const FROM = process.env.EMAIL_FROM ?? 'Rentars <no-reply@rentars.app>';
 
 async function send(to: string, subject: string, html: string): Promise<void> {
   const transport = createTransport();
@@ -41,10 +45,21 @@ async function send(to: string, subject: string, html: string): Promise<void> {
     console.log(`[EmailService] SMTP not configured — skipping email to ${to}: ${subject}`);
     return;
   }
-  await transport.sendMail({ from: FROM, to, subject, html });
+  await transport.sendMail({ from: env.EMAIL_FROM, to, subject, html });
 }
 
 export const emailService = {
+  async sendVerificationEmail(data: VerificationEmailData): Promise<void> {
+    const verifyUrl = `${env.FRONTEND_URL}/verify-email?token=${data.token}`;
+    await send(
+      data.to,
+      'Verify your Rentars email',
+      `<p>Welcome to Rentars!</p>
+       <p><a href="${verifyUrl}">Click here to verify your email address</a></p>
+       <p>This link expires in 24 hours.</p>`,
+    );
+  },
+
   async sendBookingCreated(data: BookingEmailData): Promise<void> {
     await send(
       data.to,
@@ -75,7 +90,7 @@ export const emailService = {
   },
 
   async sendPasswordResetEmail(data: PasswordResetEmailData): Promise<void> {
-    const resetUrl = `${process.env.FRONTEND_URL ?? 'https://rentars.app'}/reset-password?token=${data.token}`;
+    const resetUrl = `${env.FRONTEND_URL}/reset-password?token=${data.token}`;
     await send(
       data.to,
       'Reset your Rentars password',

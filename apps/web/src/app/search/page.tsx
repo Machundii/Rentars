@@ -84,7 +84,7 @@ export default function SearchPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main id="main-content" className="min-h-screen bg-gray-50">
       <header className="bg-white border-b px-6 py-4">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-2xl font-bold mb-4">{t('title')}</h1>

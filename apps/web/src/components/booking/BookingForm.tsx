@@ -150,10 +150,10 @@ export default function BookingForm({
   const isOverCapacity = maxGuests !== undefined && guestCount > maxGuests;
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-md p-6 space-y-4">
+    <form onSubmit={handleSubmit} className="bg-card rounded-lg shadow-md p-6 space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="check-in">
+          <label className="block text-sm font-medium text-foreground mb-1" htmlFor="check-in">
             <Calendar className="inline mr-2" size={16} aria-hidden="true" />
             {t('checkIn')}
           </label>
@@ -163,12 +163,13 @@ export default function BookingForm({
             min={today}
             value={checkIn}
             onChange={(e) => setCheckIn(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2"
+            className="w-full border border-input rounded-lg px-3 py-2 bg-background text-foreground
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             required
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="check-out">
+          <label className="block text-sm font-medium text-foreground mb-1" htmlFor="check-out">
             <Calendar className="inline mr-2" size={16} aria-hidden="true" />
             {t('checkOut')}
           </label>
@@ -178,7 +179,8 @@ export default function BookingForm({
             min={checkIn || today}
             value={checkOut}
             onChange={(e) => setCheckOut(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2"
+            className="w-full border border-input rounded-lg px-3 py-2 bg-background text-foreground
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             required
           />
         </div>
@@ -192,11 +194,11 @@ export default function BookingForm({
       )}
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="guests">
+        <label className="block text-sm font-medium text-foreground mb-1" htmlFor="guests">
           <Users className="inline mr-2" size={16} aria-hidden="true" />
           Guests
           {maxGuests !== undefined && (
-            <span className="ml-2 text-xs font-normal text-gray-500">
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
               (max {maxGuests})
             </span>
           )}
@@ -208,10 +210,11 @@ export default function BookingForm({
           max={maxGuests}
           value={guestCount}
           onChange={handleGuestChange}
-          className={`w-full border rounded-lg px-3 py-2 ${
-            guestError ? 'border-red-400 bg-red-50' : 'border-gray-300'
-          }`}
+          className={`w-full border rounded-lg px-3 py-2 bg-background text-foreground
+            focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
+            ${guestError ? 'border-destructive bg-destructive/5' : 'border-input'}`}
           aria-describedby={guestError ? 'guest-error' : undefined}
+          aria-invalid={!!guestError}
         />
         {guestError && (
           <p id="guest-error" className="mt-1 text-sm text-red-600 flex items-center gap-1">
@@ -243,7 +246,9 @@ export default function BookingForm({
       <button
         type="submit"
         disabled={isLoading || nights <= 0 || !pricing || !!guestError || isOverCapacity}
-        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-lg transition"
+        className="w-full bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed
+          text-primary-foreground font-medium py-2 px-4 rounded-lg transition
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         {isLoading ? t('processing') : t('bookNow')}
       </button>

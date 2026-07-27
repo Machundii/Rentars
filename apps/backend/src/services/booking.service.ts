@@ -15,6 +15,11 @@ import {
 import { trustlessWorkClient } from '@/blockchain/trustlessWork.js';
 import { loggingService } from './logging.service.js';
 import { createNotification } from './notification.service.js';
+import {
+  bookingsCreatedTotal,
+  escrowFailuresTotal,
+  incCounter,
+} from '../middleware/metrics.middleware.js';
 import type { ServiceResponse } from './index.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -292,6 +297,7 @@ export class BookingService {
         undefined,
         String(err),
       );
+      incCounter(escrowFailuresTotal, { operation: 'create_escrow' });
       return {
         success: false,
         error: `Failed to create escrow: ${String(err)}`,
@@ -333,6 +339,7 @@ export class BookingService {
     createNotification(tenant_id, 'booking_created', { booking_id: booking.id, property_id }).catch(
       () => {},
     );
+    incCounter(bookingsCreatedTotal, { property_id });
 
     // 7. Create on-chain booking record (non-fatal on failure)
     if (prop.on_chain_id !== undefined && prop.on_chain_id !== null) {

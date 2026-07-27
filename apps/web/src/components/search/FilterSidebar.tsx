@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 interface FilterSidebarProps {
@@ -20,17 +20,8 @@ export interface FilterState {
 }
 
 const AMENITIES = [
-  'WiFi',
-  'Kitchen',
-  'Parking',
-  'Pool',
-  'Gym',
-  'Washer',
-  'Dryer',
-  'AC',
-  'Heating',
-  'TV',
-  'Balcony',
+  'WiFi', 'Kitchen', 'Parking', 'Pool', 'Gym',
+  'Washer', 'Dryer', 'AC', 'Heating', 'TV', 'Balcony',
 ];
 const PROPERTY_TYPES = ['Apartment', 'House', 'Villa', 'Condo', 'Studio'];
 const SORT_OPTIONS = [
@@ -42,6 +33,8 @@ const SORT_OPTIONS = [
 ];
 
 export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
+  const id = useId();
+
   const [filters, setFilters] = useState<FilterState>({
     priceMin: 0,
     priceMax: 1000,
@@ -66,278 +59,277 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const handlePriceChange = (key: 'priceMin' | 'priceMax', value: number) => {
-    const newFilters = { ...filters, [key]: value };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
+  const update = (patch: Partial<FilterState>) => {
+    const next = { ...filters, ...patch };
+    setFilters(next);
+    onFilterChange(next);
   };
 
-  const handleAmenityToggle = (amenity: string) => {
-    const newAmenities = filters.amenities.includes(amenity)
-      ? filters.amenities.filter((a) => a !== amenity)
-      : [...filters.amenities, amenity];
-    const newFilters = { ...filters, amenities: newAmenities };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
-  };
+  // ── Section toggle button ─────────────────────────────────────────────────
 
-  const handleGuestsChange = (guests: number) => {
-    const newFilters = { ...filters, guests };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
-  };
+  function SectionHeader({
+    section,
+    label,
+  }: {
+    section: keyof typeof expandedSections;
+    label: string;
+  }) {
+    const panelId = `${id}-panel-${section}`;
+    const btnId = `${id}-btn-${section}`;
+    const isOpen = expandedSections[section];
+    return (
+      <button
+        id={btnId}
+        type="button"
+        aria-expanded={isOpen}
+        aria-controls={panelId}
+        onClick={() => toggleSection(section)}
+        className="flex items-center justify-between w-full font-semibold mb-4
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
+      >
+        {label}
+        <ChevronDown
+          size={20}
+          aria-hidden="true"
+          className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+        />
+      </button>
+    );
+  }
 
-  const handleBedroomsChange = (bedrooms: number | undefined) => {
-    const newFilters = { ...filters, bedrooms };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
-  };
+  // ── Shared panel wrapper ──────────────────────────────────────────────────
 
-  const handlePropertyTypeChange = (type: string) => {
-    const newFilters = { ...filters, propertyType: type };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
-  };
-
-  const handleSortChange = (sortBy: FilterState['sortBy']) => {
-    const newFilters = { ...filters, sortBy };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
-  };
-
-  const handleDateChange = (key: 'checkIn' | 'checkOut', value: string) => {
-    const newFilters = { ...filters, [key]: value };
-    setFilters(newFilters);
-    onFilterChange(newFilters);
-  };
+  function Panel({
+    section,
+    children,
+  }: {
+    section: keyof typeof expandedSections;
+    children: React.ReactNode;
+  }) {
+    const panelId = `${id}-panel-${section}`;
+    const btnId = `${id}-btn-${section}`;
+    if (!expandedSections[section]) return null;
+    return (
+      <div id={panelId} role="region" aria-labelledby={btnId}>
+        {children}
+      </div>
+    );
+  }
 
   return (
-    <div className="bg-white rounded-lg border p-6 space-y-6 h-fit sticky top-8">
-      {/* Sort */}
+    <div className="bg-card rounded-lg border border-border p-6 space-y-6 h-fit sticky top-8">
+
+      {/* Sort ---------------------------------------------------------------- */}
       <div>
-        <button
-          onClick={() => toggleSection('sort')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
-        >
-          Sort By
-          <ChevronDown
-            size={20}
-            className={`transition ${expandedSections.sort ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.sort && (
+        <SectionHeader section="sort" label="Sort By" />
+        <Panel section="sort">
           <div className="space-y-2">
             {SORT_OPTIONS.map((option) => (
               <label key={option.value} className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="radio"
                   name="sortBy"
+                  value={option.value}
                   checked={filters.sortBy === option.value}
-                  onChange={() => handleSortChange(option.value as any)}
-                  className="rounded-full"
+                  onChange={() => update({ sortBy: option.value as FilterState['sortBy'] })}
+                  className="rounded-full focus:ring-2 focus:ring-ring focus:ring-offset-1"
                 />
                 <span className="text-sm">{option.label}</span>
               </label>
             ))}
           </div>
-        )}
+        </Panel>
       </div>
 
-      {/* Price Range */}
+      {/* Price Range --------------------------------------------------------- */}
       <div>
-        <button
-          onClick={() => toggleSection('price')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
-        >
-          Price Range
-          <ChevronDown
-            size={20}
-            className={`transition ${expandedSections.price ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.price && (
+        <SectionHeader section="price" label="Price Range" />
+        <Panel section="price">
           <div className="space-y-4">
             <div>
-              <label className="text-sm text-gray-600">Min: ${filters.priceMin}</label>
+              <label
+                htmlFor={`${id}-price-min`}
+                className="text-sm text-muted-foreground"
+              >
+                Min: ${filters.priceMin}
+              </label>
               <input
+                id={`${id}-price-min`}
                 type="range"
                 min="0"
                 max="1000"
                 value={filters.priceMin}
-                onChange={(e) => handlePriceChange('priceMin', Number(e.target.value))}
-                className="w-full"
+                onChange={(e) => update({ priceMin: Number(e.target.value) })}
+                aria-valuemin={0}
+                aria-valuemax={1000}
+                aria-valuenow={filters.priceMin}
+                aria-valuetext={`$${filters.priceMin}`}
+                className="w-full accent-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600">Max: ${filters.priceMax}</label>
+              <label
+                htmlFor={`${id}-price-max`}
+                className="text-sm text-muted-foreground"
+              >
+                Max: ${filters.priceMax}
+              </label>
               <input
+                id={`${id}-price-max`}
                 type="range"
                 min="0"
                 max="1000"
                 value={filters.priceMax}
-                onChange={(e) => handlePriceChange('priceMax', Number(e.target.value))}
-                className="w-full"
+                onChange={(e) => update({ priceMax: Number(e.target.value) })}
+                aria-valuemin={0}
+                aria-valuemax={1000}
+                aria-valuenow={filters.priceMax}
+                aria-valuetext={`$${filters.priceMax}`}
+                className="w-full accent-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
               />
             </div>
           </div>
-        )}
+        </Panel>
       </div>
 
-      {/* Bedrooms */}
+      {/* Bedrooms ------------------------------------------------------------ */}
       <div>
-        <button
-          onClick={() => toggleSection('bedrooms')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
-        >
-          Bedrooms
-          <ChevronDown
-            size={20}
-            className={`transition ${expandedSections.bedrooms ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.bedrooms && (
-          <div className="flex gap-2 flex-wrap">
-            {[1, 2, 3, 4, 5].map((num) => (
-              <button
-                key={num}
-                onClick={() => handleBedroomsChange(filters.bedrooms === num ? undefined : num)}
-                className={`px-3 py-2 rounded border transition text-sm ${
-                  filters.bedrooms === num
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
-              >
-                {num}
-              </button>
-            ))}
+        <SectionHeader section="bedrooms" label="Bedrooms" />
+        <Panel section="bedrooms">
+          <div role="group" aria-label="Number of bedrooms" className="flex gap-2 flex-wrap">
+            {[1, 2, 3, 4, 5].map((num) => {
+              const selected = filters.bedrooms === num;
+              return (
+                <button
+                  key={num}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => update({ bedrooms: selected ? undefined : num })}
+                  className={`px-3 py-2 rounded border transition text-sm
+                    focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
+                    ${selected
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'border-border hover:border-foreground/40'
+                    }`}
+                >
+                  {num}
+                </button>
+              );
+            })}
           </div>
-        )}
+        </Panel>
       </div>
 
-      {/* Amenities */}
+      {/* Amenities ----------------------------------------------------------- */}
       <div>
-        <button
-          onClick={() => toggleSection('amenities')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
-        >
-          Amenities
-          <ChevronDown
-            size={20}
-            className={`transition ${expandedSections.amenities ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.amenities && (
+        <SectionHeader section="amenities" label="Amenities" />
+        <Panel section="amenities">
           <div className="space-y-2">
             {AMENITIES.map((amenity) => (
               <label key={amenity} className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={filters.amenities.includes(amenity)}
-                  onChange={() => handleAmenityToggle(amenity)}
-                  className="rounded"
+                  onChange={() => {
+                    const next = filters.amenities.includes(amenity)
+                      ? filters.amenities.filter((a) => a !== amenity)
+                      : [...filters.amenities, amenity];
+                    update({ amenities: next });
+                  }}
+                  className="rounded focus:ring-2 focus:ring-ring focus:ring-offset-1"
                 />
                 <span className="text-sm">{amenity}</span>
               </label>
             ))}
           </div>
-        )}
+        </Panel>
       </div>
 
-      {/* Guests */}
+      {/* Guests -------------------------------------------------------------- */}
       <div>
-        <button
-          onClick={() => toggleSection('guests')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
-        >
-          Guests
-          <ChevronDown
-            size={20}
-            className={`transition ${expandedSections.guests ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.guests && (
-          <div className="flex gap-2 flex-wrap">
-            {[1, 2, 4, 6, 8].map((num) => (
-              <button
-                key={num}
-                onClick={() => handleGuestsChange(num)}
-                className={`px-3 py-2 rounded border transition text-sm ${
-                  filters.guests === num
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
-              >
-                {num}
-              </button>
-            ))}
+        <SectionHeader section="guests" label="Guests" />
+        <Panel section="guests">
+          <div role="group" aria-label="Number of guests" className="flex gap-2 flex-wrap">
+            {[1, 2, 4, 6, 8].map((num) => {
+              const selected = filters.guests === num;
+              return (
+                <button
+                  key={num}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => update({ guests: num })}
+                  className={`px-3 py-2 rounded border transition text-sm
+                    focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
+                    ${selected
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'border-border hover:border-foreground/40'
+                    }`}
+                >
+                  {num}
+                </button>
+              );
+            })}
           </div>
-        )}
+        </Panel>
       </div>
 
-      {/* Property Type */}
+      {/* Property Type ------------------------------------------------------- */}
       <div>
-        <button
-          onClick={() => toggleSection('type')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
-        >
-          Property Type
-          <ChevronDown
-            size={20}
-            className={`transition ${expandedSections.type ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.type && (
+        <SectionHeader section="type" label="Property Type" />
+        <Panel section="type">
           <div className="space-y-2">
             {PROPERTY_TYPES.map((type) => (
               <label key={type} className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="radio"
                   name="propertyType"
+                  value={type}
                   checked={filters.propertyType === type}
-                  onChange={() => handlePropertyTypeChange(type)}
-                  className="rounded-full"
+                  onChange={() => update({ propertyType: type })}
+                  className="rounded-full focus:ring-2 focus:ring-ring focus:ring-offset-1"
                 />
                 <span className="text-sm">{type}</span>
               </label>
             ))}
           </div>
-        )}
+        </Panel>
       </div>
 
-      {/* Dates */}
+      {/* Dates --------------------------------------------------------------- */}
       <div>
-        <button
-          onClick={() => toggleSection('dates')}
-          className="flex items-center justify-between w-full font-semibold mb-4"
-        >
-          Dates
-          <ChevronDown
-            size={20}
-            className={`transition ${expandedSections.dates ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.dates && (
+        <SectionHeader section="dates" label="Dates" />
+        <Panel section="dates">
           <div className="space-y-3">
             <div>
-              <label className="text-sm text-gray-600">Check In</label>
+              <label htmlFor={`${id}-check-in`} className="text-sm text-muted-foreground block mb-1">
+                Check In
+              </label>
               <input
+                id={`${id}-check-in`}
                 type="date"
                 value={filters.checkIn || ''}
-                onChange={(e) => handleDateChange('checkIn', e.target.value)}
-                className="w-full border rounded px-2 py-1 text-sm"
+                onChange={(e) => update({ checkIn: e.target.value })}
+                className="w-full border border-border rounded px-2 py-1 text-sm
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
+                  bg-background text-foreground"
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600">Check Out</label>
+              <label htmlFor={`${id}-check-out`} className="text-sm text-muted-foreground block mb-1">
+                Check Out
+              </label>
               <input
+                id={`${id}-check-out`}
                 type="date"
                 value={filters.checkOut || ''}
-                onChange={(e) => handleDateChange('checkOut', e.target.value)}
-                className="w-full border rounded px-2 py-1 text-sm"
+                onChange={(e) => update({ checkOut: e.target.value })}
+                className="w-full border border-border rounded px-2 py-1 text-sm
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
+                  bg-background text-foreground"
               />
             </div>
           </div>
-        )}
+        </Panel>
       </div>
     </div>
   );
