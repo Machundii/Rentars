@@ -120,28 +120,10 @@ export class AuthError extends Error {
   }
 }
 
-// ─── Validation ───────────────────────────────────────────────────────────────
-
-/**
- * Input validation error codes.
- *
- * | Code | HTTP | Meaning |
- * |------|------|---------|
- * | VALIDATION_ERROR | 400 | Request body / query params failed schema validation |
- * | MISSING_REQUIRED_FIELD | 400 | A mandatory field is absent from the request |
- * | INVALID_DATE_FORMAT | 400 | A date field is not ISO 8601 |
- */
-export enum ValidationErrorCode {
-  VALIDATION_ERROR = 'VALIDATION_ERROR',
-  MISSING_REQUIRED_FIELD = 'MISSING_REQUIRED_FIELD',
-  INVALID_DATE_FORMAT = 'INVALID_DATE_FORMAT',
-}
-
 export class ValidationError extends Error {
   constructor(
-    public code: ValidationErrorCode,
-    message: string,
-    public details?: Record<string, unknown>,
+    public message: string,
+    public fields: Record<string, string[]> = {},
   ) {
     super(message);
     this.name = 'ValidationError';
@@ -149,55 +131,7 @@ export class ValidationError extends Error {
   }
 }
 
-// ─── Rate limiting ────────────────────────────────────────────────────────────
-
-/**
- * Rate-limit error codes.
- *
- * | Code | HTTP | Meaning |
- * |------|------|---------|
- * | RATE_LIMITED | 429 | Caller has exceeded the allowed request quota |
- */
-export enum RateLimitErrorCode {
-  RATE_LIMITED = 'RATE_LIMITED',
-}
-
-export class RateLimitError extends Error {
-  constructor(
-    public code: RateLimitErrorCode,
-    message: string,
-    public details?: Record<string, unknown>,
-  ) {
-    super(message);
-    this.name = 'RateLimitError';
-    Object.setPrototypeOf(this, RateLimitError.prototype);
-  }
-}
-
-// ─── Infrastructure / timeout ─────────────────────────────────────────────────
-
-/**
- * Infrastructure error codes.
- *
- * | Code | HTTP | Meaning |
- * |------|------|---------|
- * | REQUEST_TIMEOUT | 504 | Upstream dependency (Supabase, Stellar RPC, geocoding) took too long |
- * | INTERNAL_SERVER_ERROR | 500 | Unclassified server-side failure |
- */
-export enum InfraErrorCode {
-  REQUEST_TIMEOUT = 'REQUEST_TIMEOUT',
-  INTERNAL_SERVER_ERROR = 'INTERNAL_SERVER_ERROR',
-}
-
-// ─── Union type + guard ───────────────────────────────────────────────────────
-
-export type DomainError =
-  | BookingError
-  | EscrowError
-  | PropertyError
-  | AuthError
-  | ValidationError
-  | RateLimitError;
+export type DomainError = BookingError | EscrowError | PropertyError | AuthError | ValidationError;
 
 export function isDomainError(error: unknown): error is DomainError {
   return (
@@ -205,7 +139,6 @@ export function isDomainError(error: unknown): error is DomainError {
     error instanceof EscrowError ||
     error instanceof PropertyError ||
     error instanceof AuthError ||
-    error instanceof ValidationError ||
-    error instanceof RateLimitError
+    error instanceof ValidationError
   );
 }

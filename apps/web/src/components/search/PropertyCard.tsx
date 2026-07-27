@@ -1,3 +1,6 @@
+import { Heart } from 'lucide-react';
+import { useWishlist } from '@/hooks/useWishlist';
+import { formatUSDC } from '@/lib/format';
 import type { Property } from '@/types/property';
 
 interface PropertyCardProps {
@@ -31,9 +34,9 @@ export default function PropertyCard({ property }: PropertyCardProps) {
         <h3 className="font-semibold text-gray-900 dark:text-white truncate">{property.title}</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 truncate">{property.location}</p>
         <div className="mt-3 flex items-center justify-between">
-          <span className="font-bold text-blue-600 dark:text-blue-400">
-            {property.price_per_night} USDC
-            <span className="text-xs font-normal text-gray-400 dark:text-gray-500"> / night</span>
+          <span className="font-bold text-blue-600">
+            {formatUSDC(property.price_per_night)}
+            <span className="text-xs font-normal text-gray-400"> / night</span>
           </span>
           <span
             className={`text-xs px-2 py-1 rounded-full ${

@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { isDomainError } from '@/types/errors.js';
+import { isDomainError, ValidationError } from '@/types/errors.js';
 import type { DomainError } from '@/types/errors.js';
 
 interface ErrorResponse {
@@ -8,6 +8,11 @@ interface ErrorResponse {
     message: string;
     details?: Record<string, unknown>;
   };
+}
+
+interface ValidationErrorResponse {
+  message: string;
+  fields: Record<string, string[]>;
 }
 
 const ERROR_STATUS_MAP: Record<string, number> = {
@@ -60,9 +65,13 @@ export function errorMiddleware(
 ): void {
   console.error(err.stack);
 
-  // Guard: do not write a second response if the timeout middleware already
-  // responded (res.locals.timedOut) or if headers were sent by any other path.
-  if (res.headersSent) {
+  if (err instanceof ValidationError) {
+    const response: ValidationErrorResponse = {
+      message: err.message,
+      fields: err.fields,
+    };
+
+    res.status(400).json(response);
     return;
   }
 

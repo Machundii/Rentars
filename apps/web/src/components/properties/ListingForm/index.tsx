@@ -47,6 +47,7 @@ export default function ListingForm() {
     additionalRules: '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [uploadsInProgress, setUploadsInProgress] = useState(false);
 
   const currentStepIndex = STEPS.indexOf(currentStep);
 
@@ -136,7 +137,12 @@ export default function ListingForm() {
           <AmenitiesStep formData={formData} setFormData={setFormData} errors={errors} />
         )}
         {currentStep === 'photos' && (
-          <PhotosStep formData={formData} setFormData={setFormData} errors={errors} />
+          <PhotosStep
+            formData={formData}
+            setFormData={setFormData}
+            errors={errors}
+            onUploadStatusChange={setUploadsInProgress}
+          />
         )}
         {currentStep === 'pricing' && (
           <PricingStep formData={formData} setFormData={setFormData} errors={errors} />
@@ -160,7 +166,10 @@ export default function ListingForm() {
           {currentStepIndex < STEPS.length - 1 ? (
             <button
               onClick={handleNext}
-              className={`${formStyles.button} ${formStyles.buttonPrimary}`}
+              disabled={currentStep === 'photos' && uploadsInProgress}
+              className={`${formStyles.button} ${formStyles.buttonPrimary} ${
+                currentStep === 'photos' && uploadsInProgress ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             >
               Next
             </button>

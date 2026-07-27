@@ -49,7 +49,28 @@ describe('PropertyGrid', () => {
 
   it('shows empty state when no properties', () => {
     render(<PropertyGrid properties={[]} />);
-    expect(screen.getByText('No properties found. Be the first to list one!')).toBeInTheDocument();
+    expect(screen.getByText('No properties found')).toBeInTheDocument();
+    expect(screen.getByText('Try adjusting your search filters or check back later.')).toBeInTheDocument();
+  });
+
+  it('shows loading skeleton state', () => {
+    render(<PropertyGrid properties={[]} loading={true} />);
+    const skeletons = document.querySelectorAll('[class*="animate-pulse"]');
+    expect(skeletons.length).toBeGreaterThan(0);
+  });
+
+  it('shows error state with message', () => {
+    render(<PropertyGrid properties={[]} error="Search failed" />);
+    expect(screen.getByText('Search Error')).toBeInTheDocument();
+    expect(screen.getByText('Search failed')).toBeInTheDocument();
+  });
+
+  it('shows retry button on error when onRetry provided', () => {
+    const onRetry = vi.fn();
+    render(<PropertyGrid properties={[]} error="Search failed" onRetry={onRetry} />);
+    const retryButton = screen.getByRole('button', { name: /Try Again/i });
+    retryButton.click();
+    expect(onRetry).toHaveBeenCalled();
   });
 
   it('renders correct number of cards', () => {

@@ -6,6 +6,7 @@
 import { createHmac, createSign, randomBytes } from 'node:crypto';
 import { supabase } from '../config/supabase.js';
 import type { ServiceResponse } from './index.js';
+import type { NotificationType } from './notification.service.js';
 
 export interface PushSubscriptionKeys {
   p256dh: string;
@@ -109,10 +110,45 @@ function buildVapidToken(endpoint: string): string | null {
   }
 }
 
+async function checkPushPreferences(
+  userId: string,
+  notificationType?: NotificationType
+): Promise<boolean> {
+  const { data: prefs, error } = await supabase
+    .from('notification_preferences')
+    .select('push_notifications, notification_types')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error || !prefs) {
+    return true;
+  }
+
+  if (!prefs.push_notifications) {
+    return false;
+  }
+
+  if (notificationType && prefs.notification_types) {
+    const typeEnabled = (prefs.notification_types as Record<string, boolean>)[notificationType];
+    return typeEnabled !== false;
+  }
+
+  return true;
+}
+
 export async function sendPushToUser(
   userId: string,
-  payload: PushPayload
+  payload: PushPayload,
+  notificationType?: NotificationType
 ): Promise<ServiceResponse<number>> {
+  const hasPreference = await checkPushPreferences(userId, notificationType);
+  if (!hasPreference) {
+    console.log(
+      `[PushService] Push notifications disabled for user ${userId} (type: ${notificationType ?? 'generic'})`
+    );
+    return { success: true, data: 0 };
+  }
+
   const subsResult = await getUserPushSubscriptions(userId);
   if (!subsResult.success) return { success: false, error: subsResult.error };
 
@@ -155,6 +191,33 @@ export async function sendPushToUser(
   }
 
   return { success: true, data: sent };
+}
+
+export function validatePushSubscription(subscription: unknown): string | null {
+  if (!subscription || typeof subscription !== 'object') {
+    return 'Invalid subscription object';
+  }
+
+  const sub = subscription as Record<string, unknown>;
+
+  if (!sub.endpoint || typeof sub.endpoint !== 'string') {
+    return 'endpoint is required and must be a string';
+  }
+
+  if (!sub.keys || typeof sub.keys !== 'object') {
+    return 'keys object is required';
+  }
+
+  const keys = sub.keys as Record<string, unknown>;
+  if (!keys.p256dh || typeof keys.p256dh !== 'string') {
+    return 'keys.p256dh is required and must be a string';
+  }
+
+  if (!keys.auth || typeof keys.auth !== 'string') {
+    return 'keys.auth is required and must be a string';
+  }
+
+  return null;
 }
 
 export { randomBytes, createHmac };

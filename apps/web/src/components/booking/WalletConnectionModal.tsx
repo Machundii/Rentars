@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Modal, ModalHeader, ModalContent, ModalFooter } from '@/components/ui/modal';
 import { connectFreighterWallet, FreighterError, isValidStellarAddress } from '@/lib/freighter-utils';
 
 interface WalletConnectionModalProps {
@@ -94,112 +95,105 @@ export default function WalletConnectionModal({
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg max-w-md w-full">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {connectedAddress ? 'Wallet Connected' : 'Connect Your Wallet'}
-          </h2>
-          <button
-            onClick={handleClose}
-            disabled={status === 'connecting'}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-50 transition"
-            aria-label="Close modal"
-          >
-            <X size={20} />
-          </button>
-        </div>
+    <Modal
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (open || status !== 'connecting') {
+          if (!open) handleClose();
+        }
+      }}
+      title={connectedAddress ? 'Wallet Connected' : 'Connect Your Wallet'}
+    >
+      <ModalHeader
+        title={connectedAddress ? 'Wallet Connected' : 'Connect Your Wallet'}
+        onClose={status !== 'connecting' ? handleClose : undefined}
+      />
 
-        {/* Content */}
-        <div className="p-6 space-y-4">
-          {/* Status Messages */}
-          {status === 'success' && connectedAddress && (
-            <div className="flex items-start gap-3 p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
-              <CheckCircle2 size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-green-900 dark:text-green-200">Wallet Connected</p>
-                <p className="text-xs text-green-700 dark:text-green-400 mt-1 break-all font-mono">{connectedAddress}</p>
-              </div>
+      <ModalContent>
+        {/* Status Messages */}
+        {status === 'success' && connectedAddress && (
+          <div className="flex items-start gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+            <CheckCircle2 size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-green-900">Wallet Connected</p>
+              <p className="text-xs text-green-700 mt-1 break-all font-mono">{connectedAddress}</p>
             </div>
-          )}
-
-          {status === 'error' && error && (
-            <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
-              <AlertCircle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-red-900 dark:text-red-200">Connection Failed</p>
-                <p className="text-sm text-red-700 dark:text-red-400 mt-1">{error}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Main Description */}
-          {!connectedAddress && status !== 'error' && (
-            <p className="text-gray-600 dark:text-gray-400 text-sm">
-              Connect your Stellar wallet to complete this booking. Your USDC will be held in escrow
-              until the rental is confirmed.
-            </p>
-          )}
-
-          {/* Connect Button */}
-          {!connectedAddress && (
-            <button
-              onClick={handleFreighterConnect}
-              disabled={status === 'connecting'}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-2 px-4 rounded-lg transition flex items-center justify-center gap-2"
-            >
-              {status === 'connecting' && <Loader2 size={18} className="animate-spin" />}
-              <span>{status === 'connecting' ? 'Connecting...' : 'Connect Freighter Wallet'}</span>
-            </button>
-          )}
-
-          {/* Disconnect Button */}
-          {connectedAddress && status === 'success' && (
-            <button
-              onClick={handleDisconnect}
-              className="w-full bg-red-50 dark:bg-red-950 hover:bg-red-100 dark:hover:bg-red-900 text-red-700 dark:text-red-300 font-medium py-2 px-4 rounded-lg transition border border-red-200 dark:border-red-800"
-            >
-              Disconnect Wallet
-            </button>
-          )}
-
-          {/* Retry Button on Error */}
-          {status === 'error' && (
-            <button
-              onClick={handleFreighterConnect}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition"
-            >
-              Try Again
-            </button>
-          )}
-
-          {/* Info */}
-          {!connectedAddress && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
-              Don't have Freighter?{' '}
-              <a
-                href="https://www.freighter.app"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
-              >
-                Install it here
-              </a>
-            </p>
-          )}
-
-          {/* Network Info */}
-          <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-            <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
-              Connected to <span className="font-medium text-gray-700 dark:text-gray-300">Stellar Testnet</span>
-            </p>
           </div>
+        )}
+
+        {status === 'error' && error && (
+          <div className="flex items-start gap-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <AlertCircle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-red-900">Connection Failed</p>
+              <p className="text-sm text-red-700 mt-1">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Main Description */}
+        {!connectedAddress && status !== 'error' && (
+          <p className="text-gray-600 text-sm">
+            Connect your Stellar wallet to complete this booking. Your USDC will be held in escrow
+            until the rental is confirmed.
+          </p>
+        )}
+
+        {/* Connect Button */}
+        {!connectedAddress && (
+          <button
+            onClick={handleFreighterConnect}
+            disabled={status === 'connecting'}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-2 px-4 rounded-lg transition flex items-center justify-center gap-2"
+          >
+            {status === 'connecting' && <Loader2 size={18} className="animate-spin" />}
+            <span>{status === 'connecting' ? 'Connecting...' : 'Connect Freighter Wallet'}</span>
+          </button>
+        )}
+
+        {/* Disconnect Button */}
+        {connectedAddress && status === 'success' && (
+          <button
+            onClick={handleDisconnect}
+            className="w-full bg-red-50 hover:bg-red-100 text-red-700 font-medium py-2 px-4 rounded-lg transition border border-red-200"
+          >
+            Disconnect Wallet
+          </button>
+        )}
+
+        {/* Retry Button on Error */}
+        {status === 'error' && (
+          <button
+            onClick={handleFreighterConnect}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition"
+          >
+            Try Again
+          </button>
+        )}
+
+        {/* Info */}
+        {!connectedAddress && (
+          <p className="text-xs text-gray-500 text-center">
+            Don't have Freighter?{' '}
+            <a
+              href="https://www.freighter.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:underline font-medium"
+            >
+              Install it here
+            </a>
+          </p>
+        )}
+
+        {/* Network Info */}
+        <div className="pt-2 border-t">
+          <p className="text-xs text-gray-500 text-center">
+            Connected to <span className="font-medium text-gray-700">Stellar Testnet</span>
+          </p>
         </div>
-      </div>
-    </div>
+      </ModalContent>
+    </Modal>
   );
 }
