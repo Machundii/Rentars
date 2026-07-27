@@ -1,6 +1,8 @@
 import { supabase } from '../config/supabase.js';
 import type { ServiceResponse } from './index.js';
 
+export type ModerationStatus = 'pending' | 'approved' | 'rejected';
+
 export interface Review {
   id: string;
   booking_id: string;
@@ -14,6 +16,8 @@ export interface Review {
   host_response_at?: string;
   is_flagged?: boolean;
   is_approved?: boolean;
+  moderation_status?: ModerationStatus;
+  moderation_reason?: string;
   created_at?: string;
 }
 
@@ -43,7 +47,7 @@ export async function submitReview(
 
   const { data, error } = await supabase
     .from('reviews')
-    .insert({ booking_id: bookingId, reviewer_id: reviewerId, target_id: targetId, property_id: propertyId, rating, comment })
+    .insert({ booking_id: bookingId, reviewer_id: reviewerId, target_id: targetId, property_id: propertyId, rating, comment, moderation_status: 'pending' })
     .select()
     .single();
 
@@ -59,6 +63,7 @@ export async function getReviewsForProperty(propertyId: string): Promise<Service
     .from('reviews')
     .select('*')
     .eq('property_id', propertyId)
+    .eq('moderation_status', 'approved')
     .order('created_at', { ascending: false });
 
   if (error) return { success: false, error: error.message };
@@ -70,6 +75,7 @@ export async function getReviewsForUser(userId: string): Promise<ServiceResponse
     .from('reviews')
     .select('*')
     .eq('target_id', userId)
+    .eq('moderation_status', 'approved')
     .order('created_at', { ascending: false });
 
   if (error) return { success: false, error: error.message };
@@ -136,19 +142,53 @@ export async function flagReview(
   return { success: true };
 }
 
-export async function moderateReview(
-  reviewId: string,
-  approve: boolean,
-): Promise<ServiceResponse<Review>> {
+export async function approveReview(reviewId: string): Promise<ServiceResponse<Review>> {
   const { data, error } = await supabase
     .from('reviews')
-    .update({ is_approved: approve, is_flagged: false })
+    .update({ moderation_status: 'approved', is_approved: true, is_flagged: false })
     .eq('id', reviewId)
     .select()
     .single();
 
   if (error) return { success: false, error: error.message };
   return { success: true, data: data as Review };
+}
+
+export async function rejectReview(
+  reviewId: string,
+  reason: string,
+): Promise<ServiceResponse<Review>> {
+  if (!reason || reason.trim().length === 0) {
+    return { success: false, error: 'Rejection reason is required' };
+  }
+
+  const { data, error } = await supabase
+    .from('reviews')
+    .update({ moderation_status: 'rejected', is_approved: false, moderation_reason: reason, is_flagged: false })
+    .eq('id', reviewId)
+    .select()
+    .single();
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: data as Review };
+}
+
+export async function getPendingReviews(): Promise<ServiceResponse<Review[]>> {
+  const { data, error } = await supabase
+    .from('reviews')
+    .select('*')
+    .eq('moderation_status', 'pending')
+    .order('created_at', { ascending: true });
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: (data ?? []) as Review[] };
+}
+
+export async function moderateReview(
+  reviewId: string,
+  approve: boolean,
+): Promise<ServiceResponse<Review>> {
+  return approve ? approveReview(reviewId) : rejectReview(reviewId, 'Rejected by moderator');
 }
 
 export async function getFlaggedReviews(): Promise<ServiceResponse<Review[]>> {

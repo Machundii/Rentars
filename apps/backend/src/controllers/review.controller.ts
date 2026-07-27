@@ -9,6 +9,9 @@ import {
   flagReview,
   moderateReview,
   getFlaggedReviews,
+  approveReview,
+  rejectReview,
+  getPendingReviews,
 } from '../services/review.service.js';
 
 export async function createReview(req: AuthRequest, res: Response): Promise<void> {
@@ -106,6 +109,38 @@ export async function listFlaggedReviews(_req: Request, res: Response): Promise<
   const result = await getFlaggedReviews();
   if (!result.success) {
     res.status(500).json({ error: result.error });
+    return;
+  }
+  res.json(result.data);
+}
+
+export async function listPendingReviews(_req: Request, res: Response): Promise<void> {
+  const result = await getPendingReviews();
+  if (!result.success) {
+    res.status(500).json({ error: result.error });
+    return;
+  }
+  res.json(result.data);
+}
+
+export async function approveReviewHandler(req: AuthRequest, res: Response): Promise<void> {
+  const result = await approveReview(req.params.id);
+  if (!result.success) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.json(result.data);
+}
+
+export async function rejectReviewHandler(req: AuthRequest, res: Response): Promise<void> {
+  const { reason } = req.body;
+  if (!reason || typeof reason !== 'string') {
+    res.status(400).json({ error: 'reason (string) is required' });
+    return;
+  }
+  const result = await rejectReview(req.params.id, reason);
+  if (!result.success) {
+    res.status(400).json({ error: result.error });
     return;
   }
   res.json(result.data);
