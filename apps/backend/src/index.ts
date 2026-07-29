@@ -10,6 +10,7 @@ import 'dotenv/config'; // must be first import
 import { env } from './config/env.js';
 import cors from 'cors';
 import express from 'express';
+import helmet from 'helmet';
 import { errorMiddleware } from './middleware/error.middleware';
 import { rateLimiter } from './middleware/rateLimiter';
 import { timeoutMiddleware } from './middleware/timeout.middleware';
@@ -28,6 +29,8 @@ export const app = express();
 // ── Core middleware ───────────────────────────────────────────────────────────
 
 app.use(express.json());
+// Security headers (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, etc.)
+app.use(helmet());
 app.use(
   cors({
     origin: [env.CORS_ORIGIN],
