@@ -578,6 +578,8 @@ export interface AdvancedSearchFilters extends PropertySearchFilters {
   latitude?: number;
   longitude?: number;
   radius_km?: number;
+  /** Bounding-box search (used by map viewport queries) */
+  bounds?: { north: number; south: number; east: number; west: number };
   checkIn?: string;
   checkOut?: string;
   guests?: number;
@@ -593,113 +595,274 @@ export interface SearchResult {
   city?: string;
   country?: string;
   bedrooms?: number;
+  max_guests?: number;
   amenities?: string[];
+  images?: string[];
+  slug?: string;
   distance_km?: number;
+  /** Denormalized average rating from the properties table */
   rating?: number;
+  review_count?: number;
+  is_featured?: boolean;
+  latitude?: number;
+  longitude?: number;
   created_at?: string;
 }
 
+export interface SearchPageResult {
+  data: SearchResult[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
+
 /**
- * Advanced property search with full-text search, filtering, sorting, and pagination.
+ * Advanced property search with full-text search, availability filtering,
+ * sorting, and offset pagination.
+ *
+ * Date-range availability: when checkIn + checkOut are provided, properties
+ * that have any active booking (non-cancelled) overlapping those dates are
+ * excluded from the result set via a NOT IN sub-query.
  */
 export async function advancedSearch(
   filters: AdvancedSearchFilters,
-): Promise<ServiceResponse<SearchResult[]>> {
-  const cacheKey = `search:${JSON.stringify(filters)}`;
-  const cached = await cache.get<SearchResult[]>(cacheKey);
-  if (cached) return { success: true, data: cached };
+): Promise<ServiceResponse<SearchPageResult>> {
+  // Skip cache when date filters are present — availability is real-time
+  const cacheKey = (!filters.checkIn && !filters.checkOut)
+    ? `search:${JSON.stringify(filters)}`
+    : null;
 
-  let query = supabase.from('properties').select('*');
+  if (cacheKey) {
+    const cached = await cache.get<SearchPageResult>(cacheKey);
+    if (cached) return { success: true, data: cached };
+  }
 
-  // Full-text search on title/description
-  if (filters.query) {
-    const tsQuery = toTsQuery(filters.query);
-    if (tsQuery) {
-      query = query.textSearch('search_vector', tsQuery, { config: 'english' });
+  const limit = Math.min(filters.limit || 20, 100);
+  const page = Math.max(filters.page || 1, 1);
+
+  // ── 1. Resolve IDs to exclude based on date-range availability ──────────
+  let excludedPropertyIds: string[] = [];
+
+  if (filters.checkIn && filters.checkOut) {
+    const { data: bookedRows } = await supabase
+      .from('bookings')
+      .select('property_id')
+      .neq('status', 'Cancelled')
+      .lt('check_in', filters.checkOut)
+      .gt('check_out', filters.checkIn);
+
+    if (bookedRows && bookedRows.length > 0) {
+      excludedPropertyIds = [
+        ...new Set((bookedRows as { property_id: string }[]).map((r) => r.property_id)),
+      ];
+    }
+
+    // Also exclude properties that have a blocked availability_range overlapping the dates
+    const { data: blockedRows } = await supabase
+      .from('availability_ranges')
+      .select('property_id')
+      .eq('is_available', false)
+      .lt('start_date', filters.checkOut)
+      .gt('end_date', filters.checkIn);
+
+    if (blockedRows && blockedRows.length > 0) {
+      const blockedIds = (blockedRows as { property_id: string }[]).map((r) => r.property_id);
+      excludedPropertyIds = [...new Set([...excludedPropertyIds, ...blockedIds])];
     }
   }
 
-  // Location filters
-  if (filters.city) query = query.ilike('city', `%${filters.city}%`);
-  if (filters.country) query = query.ilike('country', `%${filters.country}%`);
+  // ── 2. Build the base query ────────────────────────────────────────────────
+  // We run two parallel queries: one for total count, one for page data.
+  const buildQuery = (forCount: boolean) => {
+    let q = forCount
+      ? supabase.from('properties').select('id', { count: 'exact', head: true })
+      : supabase.from('properties').select('*');
 
-  // Price range
-  if (filters.min_price !== undefined) query = query.gte('price_per_night', filters.min_price);
-  if (filters.max_price !== undefined) query = query.lte('price_per_night', filters.max_price);
+    // Full-text search on title/description
+    if (filters.query) {
+      const tsQuery = toTsQuery(filters.query);
+      if (tsQuery) {
+        q = q.textSearch('search_vector', tsQuery, { config: 'english' });
+      }
+    }
 
-  // Bedroom filter
-  if (filters.bedrooms !== undefined) query = query.gte('bedrooms', filters.bedrooms);
+    // Location filters
+    if (filters.city) q = q.ilike('city', `%${filters.city}%`);
+    if (filters.country) q = q.ilike('country', `%${filters.country}%`);
 
-  // Guest capacity
-  if (filters.guests !== undefined) query = query.gte('max_guests', filters.guests);
+    // Bounding-box filter (map viewport)
+    if (filters.bounds) {
+      const { north, south, east, west } = filters.bounds;
+      q = q
+        .gte('latitude', south)
+        .lte('latitude', north)
+        .gte('longitude', west)
+        .lte('longitude', east);
+    }
 
-  // Amenities - filter by overlap with array
-  if (filters.amenities && filters.amenities.length > 0) {
-    query = query.contains('amenities', filters.amenities);
-  }
+    // Price range
+    if (filters.min_price !== undefined) q = q.gte('price_per_night', filters.min_price);
+    if (filters.max_price !== undefined) q = q.lte('price_per_night', filters.max_price);
 
-  // Status
-  if (filters.status) query = query.eq('status', filters.status);
-  else query = query.eq('status', 'available');
+    // Bedroom filter
+    if (filters.bedrooms !== undefined) q = q.gte('bedrooms', filters.bedrooms);
 
-  // Handle sorting
+    // Guest capacity
+    if (filters.guests !== undefined) q = q.gte('max_guests', filters.guests);
+
+    // Amenities — must contain all requested amenities
+    if (filters.amenities && filters.amenities.length > 0) {
+      q = q.contains('amenities', filters.amenities);
+    }
+
+    // Status
+    if (filters.status) q = q.eq('status', filters.status);
+    else q = q.eq('status', 'available');
+
+    // Exclude unavailable properties (booked / blocked dates)
+    if (excludedPropertyIds.length > 0) {
+      q = q.not('id', 'in', `(${excludedPropertyIds.map((id) => `"${id}"`).join(',')})`);
+    }
+
+    return q;
+  };
+
+  // ── 3. Run count + data queries in parallel ───────────────────────────────
+  const countQuery = buildQuery(true);
+  let dataQuery = buildQuery(false);
+
+  // Sorting
   const sortBy = filters.sortBy || 'newest';
   switch (sortBy) {
     case 'price_asc':
-      query = query.order('price_per_night', { ascending: true });
+      dataQuery = dataQuery.order('price_per_night', { ascending: true });
       break;
     case 'price_desc':
-      query = query.order('price_per_night', { ascending: false });
-      break;
-    case 'newest':
-      query = query.order('created_at', { ascending: false });
+      dataQuery = dataQuery.order('price_per_night', { ascending: false });
       break;
     case 'rating':
-      // Rating sorting would require a join with reviews table
-      query = query.order('created_at', { ascending: false });
+      dataQuery = dataQuery
+        .order('average_rating', { ascending: false, nullsFirst: false })
+        .order('review_count', { ascending: false, nullsFirst: false });
       break;
     case 'distance':
-      // Distance sorting handled post-query if geolocation provided
-      query = query.order('created_at', { ascending: false });
+    case 'newest':
+    default:
+      dataQuery = dataQuery.order('created_at', { ascending: false });
       break;
   }
 
   // Pagination
-  const limit = Math.min(filters.limit || 20, 100);
-  const page = Math.max(filters.page || 1, 1);
   const from = (page - 1) * limit;
+  dataQuery = dataQuery.range(from, from + limit - 1);
 
-  query = query.range(from, from + limit - 1);
+  const [countResult, dataResult] = await Promise.all([countQuery, dataQuery]);
 
-  const { data, error } = await query;
-
-  if (error) {
-    return { success: false, error: error.message };
+  if (dataResult.error) {
+    return { success: false, error: dataResult.error.message };
   }
 
-  let results = (data ?? []).map((p: Property) => ({
+  const total = (countResult as { count?: number | null }).count ?? 0;
+  let properties = (dataResult.data ?? []) as Property[];
+
+  // ── 4. Post-query: distance sort using in-memory haversine (fallback) ─────
+  if (
+    sortBy === 'distance' &&
+    filters.latitude !== undefined &&
+    filters.longitude !== undefined
+  ) {
+    const lat0 = filters.latitude;
+    const lng0 = filters.longitude;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const haversine = (lat: number, lng: number) => {
+      const R = 6371;
+      const dLat = toRad(lat - lat0);
+      const dLng = toRad(lng - lng0);
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat0)) * Math.cos(toRad(lat)) * Math.sin(dLng / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+
+    // Filter by radius_km if provided, then sort
+    const withDist = properties
+      .filter((p) => {
+        if (p.latitude == null || p.longitude == null) return false;
+        if (filters.radius_km === undefined) return true;
+        return haversine(p.latitude, p.longitude) <= filters.radius_km;
+      })
+      .map((p) => ({
+        property: p,
+        dist: p.latitude != null && p.longitude != null
+          ? haversine(p.latitude, p.longitude)
+          : Infinity,
+      }));
+
+    withDist.sort((a, b) => a.dist - b.dist);
+
+    const results: SearchResult[] = withDist.map(({ property: p, dist }) => ({
+      id: p.id,
+      title: p.title,
+      price_per_night: p.price_per_night,
+      city: p.city,
+      country: p.country,
+      bedrooms: p.bedrooms,
+      max_guests: p.max_guests,
+      amenities: p.amenities,
+      images: p.images,
+      slug: p.slug,
+      latitude: p.latitude ?? undefined,
+      longitude: p.longitude ?? undefined,
+      rating: p.average_rating ?? 0,
+      review_count: p.review_count ?? 0,
+      distance_km: Math.round(dist * 10) / 10,
+      is_featured: false,
+      created_at: p.created_at,
+    }));
+
+    const pageResult: SearchPageResult = {
+      data: results,
+      total,
+      page,
+      limit,
+      hasMore: from + properties.length < total,
+    };
+
+    if (cacheKey) await cache.set(cacheKey, pageResult, 60);
+    return { success: true, data: pageResult };
+  }
+
+  // ── 5. Map to SearchResult ─────────────────────────────────────────────────
+  const results: SearchResult[] = properties.map((p) => ({
     id: p.id,
     title: p.title,
     price_per_night: p.price_per_night,
     city: p.city,
     country: p.country,
     bedrooms: p.bedrooms,
+    max_guests: p.max_guests,
     amenities: p.amenities,
-    rating: 0, // TODO: calculate from reviews
+    images: p.images,
+    slug: p.slug,
+    latitude: p.latitude ?? undefined,
+    longitude: p.longitude ?? undefined,
+    rating: p.average_rating ?? 0,
+    review_count: p.review_count ?? 0,
+    is_featured: false,
     created_at: p.created_at,
-  })) as SearchResult[];
+  }));
 
-  // Handle geolocation-based distance sorting
-  if (sortBy === 'distance' && filters.latitude && filters.longitude && filters.radius_km) {
-    const filtered = results.filter((p) => {
-      // This is a simplified check - in production use PostGIS
-      return true;
-    });
-    results = filtered;
-  }
+  const pageResult: SearchPageResult = {
+    data: results,
+    total,
+    page,
+    limit,
+    hasMore: from + results.length < total,
+  };
 
-  await cache.set(cacheKey, results, 60);
-  return { success: true, data: results };
+  if (cacheKey) await cache.set(cacheKey, pageResult, 60);
+  return { success: true, data: pageResult };
 }
 
 function toTsQuery(input: string): string {

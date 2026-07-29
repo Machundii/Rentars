@@ -236,10 +236,12 @@ export async function advancedSearchHandler(req: Request, res: Response): Promis
   }
 
   const viewerId = (req as AuthRequest).userId;
-  await trackSearch(filters.query || '', result.data.length, viewerId, filters);
+  const { data: resultData, total, page: resultPage, limit: resultLimit, hasMore } = result.data;
+
+  await trackSearch(filters.query || '', resultData.length, viewerId, filters);
 
   // Search results are always public — redact coordinates
-  const redacted = result.data.map((p) =>
+  const redacted = resultData.map((p) =>
     redactExactCoordinates(p as { id: string; latitude?: number; longitude?: number }) as unknown as Record<string, unknown>,
   );
 
@@ -248,11 +250,73 @@ export async function advancedSearchHandler(req: Request, res: Response): Promis
     if (suggestions.length > 0) {
       trackSuggestionEvent('offered', suggestions.map((s) => s.type).join(','), filters.query, viewerId).catch(() => {});
     }
-    res.json({ data: redacted, count: 0, page: filters.page, _suggestions: suggestions });
+    res.json({ data: redacted, total: 0, count: 0, page: resultPage, limit: resultLimit, hasMore: false, _suggestions: suggestions });
     return;
   }
 
-  res.json({ data: redacted, count: redacted.length, page: filters.page });
+  res.json({ data: redacted, total, count: redacted.length, page: resultPage, limit: resultLimit, hasMore });
+}
+
+// ─── Bounds Search ────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v1/properties/search/bounds
+ *
+ * Returns properties within a map viewport bounding box.
+ * Intended for the map view — returns up to 100 results with coordinates.
+ *
+ * Query params: north, south, east, west (all required floats)
+ *   plus optional filter params: min_price, max_price, guests, bedrooms,
+ *   amenities, checkIn, checkOut
+ */
+export async function boundsSearchHandler(req: Request, res: Response): Promise<void> {
+  const { north, south, east, west } = req.query;
+
+  if (!north || !south || !east || !west) {
+    res.status(400).json({ error: 'north, south, east, and west query params are required' });
+    return;
+  }
+
+  const northN = Number(north);
+  const southN = Number(south);
+  const eastN  = Number(east);
+  const westN  = Number(west);
+
+  if ([northN, southN, eastN, westN].some(isNaN)) {
+    res.status(400).json({ error: 'Bounding-box coordinates must be numeric' });
+    return;
+  }
+
+  const filters: AdvancedSearchFilters = {
+    bounds: { north: northN, south: southN, east: eastN, west: westN },
+    min_price: req.query.min_price ? Number(req.query.min_price) : undefined,
+    max_price: req.query.max_price ? Number(req.query.max_price) : undefined,
+    bedrooms:  req.query.bedrooms  ? Number(req.query.bedrooms)  : undefined,
+    guests:    req.query.guests    ? Number(req.query.guests)    : undefined,
+    amenities: req.query.amenities
+      ? Array.isArray(req.query.amenities)
+        ? (req.query.amenities as string[])
+        : [req.query.amenities as string]
+      : undefined,
+    checkIn:  req.query.checkIn  as string | undefined,
+    checkOut: req.query.checkOut as string | undefined,
+    sortBy:   'newest',
+    page: 1,
+    limit: 100,
+  };
+
+  const result = await advancedSearch(filters);
+  if (!result.success) {
+    res.status(500).json({ error: result.error });
+    return;
+  }
+
+  // Bounds results always redact exact coords (approximate for non-owners)
+  const redacted = result.data.data.map((p) =>
+    redactExactCoordinates(p as { id: string; latitude?: number; longitude?: number }) as unknown as Record<string, unknown>,
+  );
+
+  res.json({ data: redacted, total: result.data.total });
 }
 
 export async function searchSuggestionsHandler(req: Request, res: Response): Promise<void> {

@@ -721,6 +721,247 @@ export class BookingService {
     return { success: true, data: updatedData as Booking };
   }
 
+  // ── Complete ───────────────────────────────────────────────────────────────
+
+  /**
+   * Mark a booking as Completed.
+   *
+   * Allowed transitions: Confirmed → Completed.
+   * Only the tenant (or admin) may complete a booking. Completing releases the
+   * escrow to the host if it hasn't been released yet, then marks the booking
+   * Completed in the DB and on-chain.
+   *
+   * @param bookingId - UUID of the booking to complete
+   * @param userId    - ID of the caller (must be the tenant)
+   */
+  async completeBooking(bookingId: string, userId: string): Promise<ServiceResponse<Booking>> {
+    if (!bookingId) {
+      return { success: false, error: 'Booking ID is required' };
+    }
+
+    const { data: bookingData, error: fetchError } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('id', bookingId)
+      .single();
+
+    if (fetchError || !bookingData) {
+      return { success: false, error: 'Booking not found' };
+    }
+
+    const booking = bookingData as Booking;
+
+    // State-machine: only Confirmed bookings can be completed
+    if (booking.status === 'Completed') {
+      return { success: false, error: 'Booking is already completed' };
+    }
+    if (booking.status !== 'Confirmed') {
+      return {
+        success: false,
+        error: `Cannot complete a booking in '${booking.status}' status. Only Confirmed bookings can be completed.`,
+      };
+    }
+
+    // Authorisation: only the tenant may mark as completed
+    if (booking.tenant_id && booking.tenant_id !== userId) {
+      return { success: false, error: 'Forbidden: only the tenant can complete a booking' };
+    }
+
+    // Release escrow if still open (idempotent — if already released this is a no-op on TW)
+    if (booking.escrow_id) {
+      loggingService.logBlockchainOperation('releaseEscrowComplete', {
+        bookingId,
+        userId,
+        escrowId: booking.escrow_id,
+      });
+
+      try {
+        await trustlessWorkClient.releaseEscrow(booking.escrow_id, 'Booking completed by tenant');
+      } catch (err) {
+        loggingService.logBlockchainOperation(
+          'releaseEscrowComplete',
+          { bookingId, userId, escrowId: booking.escrow_id },
+          undefined,
+          String(err),
+        );
+        // Log but don't block — the DB transition must still succeed
+        console.warn('[BookingService] Escrow release on complete failed:', err);
+      }
+    }
+
+    // Update DB status
+    const { data: updatedData, error: updateError } = await supabase
+      .from('bookings')
+      .update({ status: 'Completed' })
+      .eq('id', bookingId)
+      .select()
+      .single();
+
+    if (updateError) {
+      return { success: false, error: updateError.message };
+    }
+
+    // Notify tenant
+    if (booking.tenant_id) {
+      createNotification(booking.tenant_id, 'booking_completed', { booking_id: bookingId }).catch(
+        () => {},
+      );
+    }
+
+    // Update on-chain status (non-fatal)
+    if (booking.on_chain_id !== undefined && booking.on_chain_id !== null) {
+      const callerAddress = await fetchStellarAddress(userId);
+      if (callerAddress) {
+        loggingService.logBlockchainOperation('updateBookingStatusOnChain', {
+          bookingId,
+          userId,
+          newStatus: 'Completed',
+        });
+
+        try {
+          await this.blockchain.updateBookingStatusOnChain(
+            BigInt(booking.on_chain_id),
+            'Completed',
+            callerAddress,
+          );
+        } catch (err) {
+          loggingService.logBlockchainOperation(
+            'updateBookingStatusOnChain',
+            { bookingId, userId },
+            undefined,
+            String(err),
+          );
+          console.warn('[BookingService] On-chain complete status update failed:', err);
+        }
+      }
+    }
+
+    return { success: true, data: updatedData as Booking };
+  }
+
+  // ── Dispute ────────────────────────────────────────────────────────────────
+
+  /**
+   * Open a dispute on a booking.
+   *
+   * Allowed transitions: Confirmed → Disputed.
+   * Only the tenant may open a dispute. The escrow is locked (not released)
+   * until an admin resolves the dispute via resolveDispute().
+   *
+   * @param bookingId - UUID of the booking to dispute
+   * @param userId    - ID of the caller (must be the tenant)
+   * @param reason    - Optional human-readable reason for the dispute
+   */
+  async disputeBooking(
+    bookingId: string,
+    userId: string,
+    reason?: string,
+  ): Promise<ServiceResponse<Booking>> {
+    if (!bookingId) {
+      return { success: false, error: 'Booking ID is required' };
+    }
+
+    const { data: bookingData, error: fetchError } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('id', bookingId)
+      .single();
+
+    if (fetchError || !bookingData) {
+      return { success: false, error: 'Booking not found' };
+    }
+
+    const booking = bookingData as Booking;
+
+    // State-machine: only Confirmed bookings can be disputed
+    if (booking.status === 'Disputed') {
+      return { success: false, error: 'Booking is already in dispute' };
+    }
+    if (booking.status !== 'Confirmed') {
+      return {
+        success: false,
+        error: `Cannot dispute a booking in '${booking.status}' status. Only Confirmed bookings can be disputed.`,
+      };
+    }
+
+    // Authorisation: only the tenant may raise a dispute
+    if (booking.tenant_id && booking.tenant_id !== userId) {
+      return { success: false, error: 'Forbidden: only the tenant can open a dispute' };
+    }
+
+    // Dispute on-chain (advisory — the DB transition is authoritative)
+    if (booking.on_chain_id !== undefined && booking.on_chain_id !== null) {
+      const callerAddress = await fetchStellarAddress(userId);
+      if (callerAddress) {
+        loggingService.logBlockchainOperation('disputeBookingOnChain', {
+          bookingId,
+          userId,
+        });
+
+        try {
+          const { disputeBookingOnChain } = await import('@/blockchain/bookingContract.js');
+          await disputeBookingOnChain(callerAddress, BigInt(booking.on_chain_id));
+        } catch (err) {
+          loggingService.logBlockchainOperation(
+            'disputeBookingOnChain',
+            { bookingId, userId },
+            undefined,
+            String(err),
+          );
+          console.warn('[BookingService] On-chain dispute failed:', err);
+        }
+      }
+    }
+
+    // Update DB status (+ persist dispute reason in a metadata column if available)
+    const updatePayload: Record<string, unknown> = { status: 'Disputed' };
+    if (reason) {
+      updatePayload['dispute_reason'] = reason;
+    }
+
+    const { data: updatedData, error: updateError } = await supabase
+      .from('bookings')
+      .update(updatePayload)
+      .eq('id', bookingId)
+      .select()
+      .single();
+
+    if (updateError) {
+      // Fallback: try without dispute_reason in case column doesn't exist yet
+      if (reason) {
+        const { data: fallback, error: fallbackError } = await supabase
+          .from('bookings')
+          .update({ status: 'Disputed' })
+          .eq('id', bookingId)
+          .select()
+          .single();
+
+        if (fallbackError) {
+          return { success: false, error: fallbackError.message };
+        }
+
+        if (booking.tenant_id) {
+          createNotification(booking.tenant_id, 'booking_disputed', { booking_id: bookingId }).catch(
+            () => {},
+          );
+        }
+
+        return { success: true, data: fallback as Booking };
+      }
+
+      return { success: false, error: updateError.message };
+    }
+
+    // Notify tenant & property owner
+    if (booking.tenant_id) {
+      createNotification(booking.tenant_id, 'booking_disputed', { booking_id: bookingId }).catch(
+        () => {},
+      );
+    }
+
+    return { success: true, data: updatedData as Booking };
+  }
+
   // ── Update / Delete ────────────────────────────────────────────────────────
 
   /**
