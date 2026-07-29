@@ -1,8 +1,12 @@
+'use client';
+
+import Image from 'next/image';
 import { Heart, Star } from 'lucide-react';
 import Link from 'next/link';
 import { useWishlist } from '@/hooks/useWishlist';
 import { formatUSDC } from '@/lib/format';
 import { type Property, propertyPath } from '@/types/property';
+import { useTranslations } from '@/lib/i18n/useTranslations';
 
 interface PropertyCardProps {
   property: Property;
@@ -11,9 +15,10 @@ interface PropertyCardProps {
 export default function PropertyCard({ property }: PropertyCardProps) {
   const { isInWishlist, toggle } = useWishlist();
   const saved = isInWishlist(property.id);
+  const t = useTranslations('property');
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden hover:shadow-md transition-shadow relative">
+    <article className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden hover:shadow-md transition-shadow relative">
       {/* ── Featured badge ───────────────────────────────────────────────── */}
       {property.is_featured && (
         <div
@@ -27,9 +32,13 @@ export default function PropertyCard({ property }: PropertyCardProps) {
 
       {/* ── Wishlist toggle ──────────────────────────────────────────────── */}
       <button
-        onClick={(e) => { e.preventDefault(); toggle(property.id); }}
-        className="absolute top-3 right-3 z-10 p-1.5 bg-white dark:bg-gray-800 rounded-full shadow hover:scale-110 transition-transform"
-        aria-label={saved ? 'Remove from wishlist' : 'Add to wishlist'}
+        onClick={(e) => {
+          e.preventDefault();
+          toggle(property.id);
+        }}
+        className="absolute top-3 right-3 z-10 p-1.5 bg-white dark:bg-gray-800 rounded-full shadow hover:scale-110 transition-transform min-w-[44px] min-h-[44px] flex items-center justify-center"
+        aria-label={saved ? t('removeFromWishlist') : t('addToWishlist')}
+        aria-pressed={saved}
       >
         <Heart
           size={18}
@@ -40,15 +49,23 @@ export default function PropertyCard({ property }: PropertyCardProps) {
 
       {/* ── Card body — wrapped in a Link for navigation ─────────────────── */}
       <Link href={propertyPath(property)} className="block">
-        <div className="h-48 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm">
+        {/* Image */}
+        <div className="relative h-48 bg-gray-200 dark:bg-gray-700">
           {property.images?.[0] ? (
-            <img
+            <Image
               src={property.images[0]}
               alt={property.title}
-              className="w-full h-full object-cover"
+              fill
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+              className="object-cover"
             />
           ) : (
-            'No image'
+            <div
+              className="w-full h-full flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm"
+              aria-label={`No image available for ${property.title}`}
+            >
+              No image
+            </div>
           )}
         </div>
 
@@ -70,12 +87,13 @@ export default function PropertyCard({ property }: PropertyCardProps) {
                   ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
               }`}
+              aria-label={property.available ? 'Available' : 'Booked'}
             >
               {property.available ? 'Available' : 'Booked'}
             </span>
           </div>
         </div>
       </Link>
-    </div>
+    </article>
   );
 }

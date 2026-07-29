@@ -65,7 +65,19 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
     onFilterChange(next);
   };
 
-  // ── Section toggle button ─────────────────────────────────────────────────
+  const handleBedroomsChange = (num: number | undefined) => {
+    update({ bedrooms: num });
+  };
+
+  const handleGuestsChange = (num: number) => {
+    update({ guests: num });
+  };
+
+  const handleDateChange = (field: 'checkIn' | 'checkOut', value: string) => {
+    update({ [field]: value || undefined });
+  };
+
+  // ── Reusable section header with aria-expanded / aria-controls ─────────
 
   function SectionHeader({
     section,
@@ -85,19 +97,20 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
         aria-controls={panelId}
         onClick={() => toggleSection(section)}
         className="flex items-center justify-between w-full font-semibold mb-4
+          text-gray-900 dark:text-gray-100
           focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
       >
         {label}
         <ChevronDown
           size={20}
           aria-hidden="true"
-          className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+          className={`transition-transform duration-200 text-gray-600 dark:text-gray-400 ${isOpen ? 'rotate-180' : ''}`}
         />
       </button>
     );
   }
 
-  // ── Shared panel wrapper ──────────────────────────────────────────────────
+  // ── Shared collapsible panel ────────────────────────────────────────────
 
   function Panel({
     section,
@@ -118,19 +131,11 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6 space-y-6 h-fit sticky top-8">
-      {/* Sort */}
+
+      {/* Sort --------------------------------------------------------------- */}
       <div>
-        <button
-          onClick={() => toggleSection('sort')}
-          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
-        >
-          Sort By
-          <ChevronDown
-            size={20}
-            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.sort ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.sort && (
+        <SectionHeader section="sort" label="Sort By" />
+        <Panel section="sort">
           <div className="space-y-2">
             {SORT_OPTIONS.map((option) => (
               <label key={option.value} className="flex items-center gap-2 cursor-pointer">
@@ -149,22 +154,18 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
         </Panel>
       </div>
 
-      {/* Price Range --------------------------------------------------------- */}
+      {/* Price Range -------------------------------------------------------- */}
       <div>
-        <button
-          onClick={() => toggleSection('price')}
-          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
-        >
-          Price Range
-          <ChevronDown
-            size={20}
-            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.price ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.price && (
+        <SectionHeader section="price" label="Price Range" />
+        <Panel section="price">
           <div className="space-y-4">
             <div>
-              <label className="text-sm text-gray-600 dark:text-gray-400">Min: ${filters.priceMin}</label>
+              <label
+                htmlFor={`${id}-price-min`}
+                className="text-sm text-gray-600 dark:text-gray-400"
+              >
+                Min: ${filters.priceMin}
+              </label>
               <input
                 id={`${id}-price-min`}
                 type="range"
@@ -180,7 +181,12 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600 dark:text-gray-400">Max: ${filters.priceMax}</label>
+              <label
+                htmlFor={`${id}-price-max`}
+                className="text-sm text-gray-600 dark:text-gray-400"
+              >
+                Max: ${filters.priceMax}
+              </label>
               <input
                 id={`${id}-price-max`}
                 type="range"
@@ -199,25 +205,18 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
         </Panel>
       </div>
 
-      {/* Bedrooms ------------------------------------------------------------ */}
+      {/* Bedrooms ----------------------------------------------------------- */}
       <div>
-        <button
-          onClick={() => toggleSection('bedrooms')}
-          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
-        >
-          Bedrooms
-          <ChevronDown
-            size={20}
-            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.bedrooms ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.bedrooms && (
+        <SectionHeader section="bedrooms" label="Bedrooms" />
+        <Panel section="bedrooms">
           <div className="flex gap-2 flex-wrap">
             {[1, 2, 3, 4, 5].map((num) => (
               <button
                 key={num}
+                type="button"
                 onClick={() => handleBedroomsChange(filters.bedrooms === num ? undefined : num)}
-                className={`px-3 py-2 rounded border transition text-sm ${
+                aria-pressed={filters.bedrooms === num}
+                className={`px-3 py-2 rounded border transition text-sm min-h-[44px] min-w-[44px] ${
                   filters.bedrooms === num
                     ? 'bg-blue-600 text-white border-blue-600'
                     : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500'
@@ -230,19 +229,10 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
         </Panel>
       </div>
 
-      {/* Amenities ----------------------------------------------------------- */}
+      {/* Amenities ---------------------------------------------------------- */}
       <div>
-        <button
-          onClick={() => toggleSection('amenities')}
-          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
-        >
-          Amenities
-          <ChevronDown
-            size={20}
-            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.amenities ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.amenities && (
+        <SectionHeader section="amenities" label="Amenities" />
+        <Panel section="amenities">
           <div className="space-y-2">
             {AMENITIES.map((amenity) => (
               <label key={amenity} className="flex items-center gap-2 cursor-pointer">
@@ -264,25 +254,18 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
         </Panel>
       </div>
 
-      {/* Guests -------------------------------------------------------------- */}
+      {/* Guests ------------------------------------------------------------- */}
       <div>
-        <button
-          onClick={() => toggleSection('guests')}
-          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
-        >
-          Guests
-          <ChevronDown
-            size={20}
-            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.guests ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.guests && (
+        <SectionHeader section="guests" label="Guests" />
+        <Panel section="guests">
           <div className="flex gap-2 flex-wrap">
             {[1, 2, 4, 6, 8].map((num) => (
               <button
                 key={num}
+                type="button"
                 onClick={() => handleGuestsChange(num)}
-                className={`px-3 py-2 rounded border transition text-sm ${
+                aria-pressed={filters.guests === num}
+                className={`px-3 py-2 rounded border transition text-sm min-h-[44px] min-w-[44px] ${
                   filters.guests === num
                     ? 'bg-blue-600 text-white border-blue-600'
                     : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-gray-400 dark:hover:border-gray-500'
@@ -295,19 +278,10 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
         </Panel>
       </div>
 
-      {/* Property Type ------------------------------------------------------- */}
+      {/* Property Type ------------------------------------------------------ */}
       <div>
-        <button
-          onClick={() => toggleSection('type')}
-          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
-        >
-          Property Type
-          <ChevronDown
-            size={20}
-            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.type ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.type && (
+        <SectionHeader section="type" label="Property Type" />
+        <Panel section="type">
           <div className="space-y-2">
             {PROPERTY_TYPES.map((type) => (
               <label key={type} className="flex items-center gap-2 cursor-pointer">
@@ -326,43 +300,45 @@ export default function FilterSidebar({ onFilterChange }: FilterSidebarProps) {
         </Panel>
       </div>
 
-      {/* Dates --------------------------------------------------------------- */}
+      {/* Dates -------------------------------------------------------------- */}
       <div>
-        <button
-          onClick={() => toggleSection('dates')}
-          className="flex items-center justify-between w-full font-semibold mb-4 text-gray-900 dark:text-gray-100"
-        >
-          Dates
-          <ChevronDown
-            size={20}
-            className={`transition text-gray-600 dark:text-gray-400 ${expandedSections.dates ? 'rotate-180' : ''}`}
-          />
-        </button>
-        {expandedSections.dates && (
+        <SectionHeader section="dates" label="Dates" />
+        <Panel section="dates">
           <div className="space-y-3">
             <div>
-              <label className="text-sm text-gray-600 dark:text-gray-400">Check In</label>
+              <label
+                htmlFor={`${id}-check-in`}
+                className="text-sm text-gray-600 dark:text-gray-400"
+              >
+                Check In
+              </label>
               <input
                 id={`${id}-check-in`}
                 type="date"
                 value={filters.checkIn || ''}
                 onChange={(e) => handleDateChange('checkIn', e.target.value)}
-                className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600 dark:text-gray-400">Check Out</label>
+              <label
+                htmlFor={`${id}-check-out`}
+                className="text-sm text-gray-600 dark:text-gray-400"
+              >
+                Check Out
+              </label>
               <input
                 id={`${id}-check-out`}
                 type="date"
                 value={filters.checkOut || ''}
                 onChange={(e) => handleDateChange('checkOut', e.target.value)}
-                className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </div>
           </div>
         </Panel>
       </div>
+
     </div>
   );
 }
