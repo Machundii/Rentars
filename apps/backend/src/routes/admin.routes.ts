@@ -7,6 +7,7 @@ import {
   getTopQueriesHandler,
   getZeroResultQueriesHandler,
   getSearchVolumeHandler,
+  getAuditLogsHandler,
 } from '@/controllers/admin.controller.js';
 
 const router = Router();
@@ -165,5 +166,13 @@ router.get('/analytics/search/zero-results', getZeroResultQueriesHandler);
  * Query: start_date, end_date (ISO datetime)
  */
 router.get('/analytics/search/volume', getSearchVolumeHandler);
+
+// ── Audit log ─────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v1/admin/audit-logs
+ * Query: actorId, action, targetType, targetId (optional filters), limit (default 50, max 200)
+ */
+router.get('/audit-logs', getAuditLogsHandler);
 
 export default router;

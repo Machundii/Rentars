@@ -68,7 +68,7 @@ export function validateBody<T extends z.ZodTypeAny>(schema: T) {
     const result = schema.safeParse(req.body);
     if (!result.success) {
       const fields: Record<string, string[]> = {};
-      result.error.errors.forEach((error) => {
+      result.error.issues.forEach((error) => {
         const field = error.path.join('.');
         if (!fields[field]) {
           fields[field] = [];

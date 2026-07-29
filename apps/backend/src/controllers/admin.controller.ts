@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { rateLimitStore } from '@/services/rateLimitStore.service.js';
 import { setFeatured, clearFeatured, FEATURED_CAP } from '@/services/property.service.js';
 import { getTopQueries, getZeroResultQueries, getDailySearchVolume } from '@/services/searchAnalytics.service.js';
+import { listAuditLogs } from '@/services/auditLog.service.js';
 import { z } from 'zod';
 
 // ─── Featured listings ────────────────────────────────────────────────────────
@@ -245,4 +246,40 @@ export async function getRateLimitSummary(req: Request, res: Response): Promise<
     // Alerting hint: expose a threshold flag operators can wire to external alerting
     alert: summary.total > Number(process.env.RATE_LIMIT_ALERT_THRESHOLD || '100'),
   });
+}
+
+// ─── Audit log ────────────────────────────────────────────────────────────────
+
+const auditLogQuerySchema = z.object({
+  actorId: z.string().uuid().optional(),
+  action: z.string().optional(),
+  targetType: z.string().optional(),
+  targetId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+/**
+ * GET /api/v1/admin/audit-logs
+ *
+ * List/filter the append-only audit trail of sensitive admin/moderator actions.
+ * No corresponding update/delete endpoint exists — entries are immutable.
+ *
+ * Query params: actorId, action, targetType, targetId (all optional filters), limit (default 50, max 200)
+ */
+export async function getAuditLogsHandler(req: Request, res: Response): Promise<void> {
+  const parsed = auditLogQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid parameters', details: parsed.error.flatten().fieldErrors });
+    return;
+  }
+
+  const { actorId, action, targetType, targetId, limit } = parsed.data;
+  const result = await listAuditLogs({ actorId, action, targetType, targetId, limit });
+
+  if (!result.success) {
+    res.status(500).json({ error: result.error });
+    return;
+  }
+
+  res.json({ data: result.data, meta: { limit } });
 }

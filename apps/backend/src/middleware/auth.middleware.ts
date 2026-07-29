@@ -26,3 +26,22 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
     res.status(401).json({ error: 'Invalid token' });
   }
 }
+
+/**
+ * Restricts access to users whose JWT `role` claim is one of `roles`.
+ * Must run after `authenticate` so `req.user.role` is populated.
+ */
+export function requireRole(...roles: string[]) {
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
+    const role = req.user?.role;
+    if (!role) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    if (!roles.includes(role)) {
+      res.status(403).json({ error: 'Forbidden: insufficient role' });
+      return;
+    }
+    next();
+  };
+}

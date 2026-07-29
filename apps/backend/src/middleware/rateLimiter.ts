@@ -14,6 +14,7 @@ let generalLimiter: RateLimiterRedis | RateLimiterMemory;
 let authLimiter: RateLimiterRedis | RateLimiterMemory;
 let bookingLimiter: RateLimiterRedis | RateLimiterMemory;
 let blockchainLimiter: RateLimiterRedis | RateLimiterMemory;
+let messageLimiter: RateLimiterRedis | RateLimiterMemory;
 
 const useRedis = !!process.env.REDIS_URL;
 
@@ -45,11 +46,19 @@ if (useRedis) {
     points: 20,
     duration: 60,
   });
+
+  messageLimiter = new RateLimiterRedis({
+    storeClient: redisClient,
+    keyPrefix: 'rl:message',
+    points: 10,
+    duration: 60,
+  });
 } else {
   generalLimiter = new RateLimiterMemory({ points: 100, duration: 60 });
   authLimiter = new RateLimiterMemory({ points: 10, duration: 60 });
   bookingLimiter = new RateLimiterMemory({ points: 5, duration: 60 });
   blockchainLimiter = new RateLimiterMemory({ points: 20, duration: 60 });
+  messageLimiter = new RateLimiterMemory({ points: 10, duration: 60 });
 }
 
 function setRateLimitHeaders(res: Response, limiterRes: any): void {
@@ -154,6 +163,20 @@ export function blockchainRateLimiter(req: AuthRequest, res: Response, next: Nex
     })
     .catch((limiterRes) => {
       handleRejection(req, res, limiterRes, 'blockchain', key, 'Too many blockchain operations, please try again later.');
+    });
+}
+
+export function messageRateLimiter(req: AuthRequest, res: Response, next: NextFunction): void {
+  const key = req.userId || req.ip || 'unknown';
+
+  messageLimiter
+    .consume(key)
+    .then((limiterRes) => {
+      setRateLimitHeaders(res, limiterRes);
+      next();
+    })
+    .catch((limiterRes) => {
+      handleRejection(req, res, limiterRes, 'message', key, 'Too many messages sent, please slow down.');
     });
 }
 

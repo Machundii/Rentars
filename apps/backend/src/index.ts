@@ -13,15 +13,13 @@ import express from 'express';
 import { errorMiddleware } from './middleware/error.middleware';
 import { rateLimiter } from './middleware/rateLimiter';
 import { timeoutMiddleware } from './middleware/timeout.middleware';
-import authRoutes from './routes/auth.routes';
-import bookingRoutes from './routes/booking.routes';
-import propertyRoutes from './routes/property.routes';
-import locationRoutes from './routes/location.routes';
+import { requestLoggingMiddleware } from './middleware/logging.middleware.js';
+import { metricsMiddleware, metricsRouter } from './middleware/metrics.middleware.js';
+import routes from './routes/index.js';
 import { setupOpenApiRoutes } from './config/swagger';
 import { validateBlockchainConfig } from './blockchain/config.js';
 import { startSyncScheduler } from './services/cleanup-schedular.js';
-
-dotenv.config();
+import { retryDependencyConnections } from './utils/retry.js';
 
 export const app = express();
 

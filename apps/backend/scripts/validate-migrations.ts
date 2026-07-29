@@ -196,4 +196,6 @@ function main(): void {
   process.exit(hasErrors ? 1 : 0);
 }
 
-main();
+if (import.meta.main) {
+  main();
+}

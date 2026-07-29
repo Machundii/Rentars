@@ -104,7 +104,7 @@ export async function moderateReviewHandler(req: AuthRequest, res: Response): Pr
     res.status(400).json({ error: 'approve (boolean) is required' });
     return;
   }
-  const result = await moderateReview(req.params.id, approve);
+  const result = await moderateReview(req.params.id, approve, req.userId);
   if (!result.success) {
     res.status(400).json({ error: result.error });
     return;
@@ -131,7 +131,7 @@ export async function listPendingReviews(_req: Request, res: Response): Promise<
 }
 
 export async function approveReviewHandler(req: AuthRequest, res: Response): Promise<void> {
-  const result = await approveReview(req.params.id);
+  const result = await approveReview(req.params.id, req.userId);
   if (!result.success) {
     res.status(400).json({ error: result.error });
     return;
@@ -145,7 +145,7 @@ export async function rejectReviewHandler(req: AuthRequest, res: Response): Prom
     res.status(400).json({ error: 'reason (string) is required' });
     return;
   }
-  const result = await rejectReview(req.params.id, reason);
+  const result = await rejectReview(req.params.id, reason, req.userId);
   if (!result.success) {
     res.status(400).json({ error: result.error });
     return;
