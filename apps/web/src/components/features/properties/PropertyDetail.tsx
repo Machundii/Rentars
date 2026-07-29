@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Heart, Share2, CheckCircle, XCircle, Clock } from 'lucide-react';
 import PropertyImageGallery from './PropertyImageGallery';
 import PropertyMap from './PropertyMap';
@@ -10,6 +10,7 @@ import FollowButton from './FollowButton';
 import { useTranslations } from '@/lib/i18n/useTranslations';
 import { useLocale } from '@/lib/i18n/useLocale';
 import { formatCurrency } from '@/lib/i18n/formatting';
+import { useRecentlyViewed } from '@/hooks/useRecentlyViewed';
 import type { Property } from '@/types/property';
 
 interface PropertyDetailProps {
@@ -41,6 +42,11 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
 
   const t = useTranslations('property');
   const { locale } = useLocale();
+  const { recordView } = useRecentlyViewed();
+
+  useEffect(() => {
+    recordView(property.id);
+  }, [property.id, recordView]);
 
   const amenities = property.amenities || [
     'WiFi',
@@ -51,9 +57,17 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
     'Washer',
   ];
 
+  const canUseNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
   const handleShare = (platform: string) => {
     const url = typeof window !== 'undefined' ? window.location.href : '';
     const text = `Check out this property: ${property.title}`;
+
+    if (platform === 'native') {
+      navigator.share({ title: property.title, text, url }).catch(() => {});
+      setShowShareMenu(false);
+      return;
+    }
 
     const shareUrls: Record<string, string> = {
       twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
@@ -103,6 +117,14 @@ export default function PropertyDetail({ property }: PropertyDetailProps) {
             </button>
             {showShareMenu && (
               <div className="absolute right-0 mt-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10">
+                {canUseNativeShare && (
+                  <button
+                    onClick={() => handleShare('native')}
+                    className="block w-full text-left px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  >
+                    {t('shareViaDevice')}
+                  </button>
+                )}
                 <button
                   onClick={() => handleShare('twitter')}
                   className="block w-full text-left px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"

@@ -43,6 +43,7 @@ const en = {
     blockchainVerified: '✓ Blockchain Verified',
     blockchainNote:
       'This property is registered on the Stellar blockchain for transparency and security.',
+    shareViaDevice: 'Share…',
     shareOnTwitter: 'Share on Twitter',
     shareOnFacebook: 'Share on Facebook',
     copyLink: 'Copy Link',
