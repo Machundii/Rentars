@@ -27,7 +27,16 @@ export const app = express();
 
 // ── Core middleware ───────────────────────────────────────────────────────────
 
-app.use(express.json());
+// Apply a JSON body-size limit to every route except multipart upload paths,
+// which are handled by multer and therefore never reach the JSON parser.
+// The limit is configurable via JSON_BODY_LIMIT (default: "1mb").
+const JSON_BODY_LIMIT = env.JSON_BODY_LIMIT;
+app.use((req, res, next) => {
+  // Skip JSON parsing for multipart requests — multer handles those.
+  if (req.is('multipart/form-data')) return next();
+  express.json({ limit: JSON_BODY_LIMIT })(req, res, next);
+});
+
 app.use(
   cors({
     origin: [env.CORS_ORIGIN],

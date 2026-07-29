@@ -65,6 +65,11 @@ const envSchema = z.object({
   // hCaptcha bot protection (set HCAPTCHA_ENABLED=false to bypass in dev)
   HCAPTCHA_SECRET_KEY: z.string().optional(),
   HCAPTCHA_ENABLED: z.string().optional(),
+
+  // ── Body size limits ───────────────────────────────────────────────────────
+  // Maximum size for JSON request bodies (Express body-parser format: "1mb", "512kb", etc.)
+  // Upload routes (multipart/form-data) are governed by multer limits, not this value.
+  JSON_BODY_LIMIT: z.string().default('1mb'),
 });
 
 // ── Type export ───────────────────────────────────────────────────────────────
