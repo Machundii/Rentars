@@ -14,7 +14,9 @@ import {
 } from '@/blockchain/bookingContract.js';
 import { trustlessWorkClient } from '@/blockchain/trustlessWork.js';
 import { loggingService } from './logging.service.js';
-import { createNotification } from './notification.service.js';
+import { createNotification, getPreferences } from './notification.service.js';
+import { emailService } from './email.service.js';
+import { buildPreferenceUrlForUser } from './preferenceToken.js';
 import { decodeCursor, buildCursorPage } from '../utils/cursor.js';
 import type { CursorPaginatedResult } from './notification.service.js';
 import type { ServiceResponse } from './index.js';
@@ -452,11 +454,17 @@ export class BookingService {
 
     const booking = bookingData as Booking;
 
-    // Notify tenant
+    // Notify tenant (in-app)
     createNotification(tenant_id, 'booking_created', { booking_id: booking.id, property_id }).catch(
       () => {},
     );
     incCounter(bookingsCreatedTotal, { property_id });
+
+    // Send detailed booking confirmation emails (tenant + host) — fire-and-forget,
+    // never block the booking creation response.
+    this.sendBookingEmails(booking, prop, tenant_id).catch((err) =>
+      console.warn('[BookingService] Confirmation email dispatch failed:', err),
+    );
 
     // 8. Create on-chain booking record (non-fatal on failure).
     if (prop.on_chain_id !== undefined && prop.on_chain_id !== null) {
@@ -772,5 +780,164 @@ export class BookingService {
     }
 
     return { success: true };
+  }
+
+  // ── Email dispatch ─────────────────────────────────────────────────────────
+
+  /**
+   * Fetch all required data and dispatch the detailed booking confirmation
+   * email to the tenant and a new-booking notification to the host.
+   *
+   * Respects per-user notification preferences:
+   *  - If the tenant has email_notifications disabled, the tenant email is skipped.
+   *  - If the host has email_notifications disabled, the host email is skipped.
+   *
+   * All failures are caught internally — this method should always be called
+   * with .catch() at the call site so it never blocks the main flow.
+   */
+  private async sendBookingEmails(
+    booking: Booking,
+    prop: {
+      id: string;
+      owner_id: string;
+      check_in_time?: string;
+      check_out_time?: string;
+    },
+    tenantId: string,
+  ): Promise<void> {
+    // Fetch tenant profile
+    const { data: tenantProfile } = await supabase
+      .from('profiles')
+      .select('id, email, full_name, notification_preferences')
+      .eq('id', tenantId)
+      .single();
+
+    // Fetch host profile
+    const { data: hostProfile } = await supabase
+      .from('profiles')
+      .select('id, email, full_name')
+      .eq('id', prop.owner_id)
+      .single();
+
+    // Fetch property details for email content
+    const { data: propertyDetails } = await supabase
+      .from('properties')
+      .select('title, address, city, country, cancellation_policy, house_rules, additional_rules, pets_allowed, smoking_allowed, events_allowed, slug')
+      .eq('id', booking.property_id ?? '')
+      .single();
+
+    const tenant = tenantProfile as {
+      id: string; email?: string; full_name?: string;
+    } | null;
+    const host   = hostProfile as {
+      id: string; email?: string; full_name?: string;
+    } | null;
+    const prop2  = propertyDetails as {
+      title?: string; address?: string; city?: string; country?: string;
+      cancellation_policy?: string; house_rules?: string[];
+      additional_rules?: string; pets_allowed?: boolean;
+      smoking_allowed?: boolean; events_allowed?: boolean; slug?: string;
+    } | null;
+
+    if (!tenant?.email || !prop2) return;
+
+    const frontendUrl = process.env.FRONTEND_URL ?? 'https://rentars.app';
+
+    // Build house rules list from structured fields + freeform text
+    const houseRules: string[] = [];
+    if (prop2.pets_allowed === false)    houseRules.push('No pets');
+    if (prop2.smoking_allowed === false) houseRules.push('No smoking');
+    if (prop2.events_allowed === false)  houseRules.push('No events or parties');
+    if (prop2.house_rules)               houseRules.push(...(prop2.house_rules as string[]));
+    if (prop2.additional_rules)          houseRules.push(prop2.additional_rules);
+
+    const checkInDate  = new Date(booking.check_in  ?? '');
+    const checkOutDate = new Date(booking.check_out ?? '');
+    const nights = isNaN(checkInDate.getTime()) || isNaN(checkOutDate.getTime())
+      ? 1
+      : Math.round((checkOutDate.getTime() - checkInDate.getTime()) / 86_400_000);
+
+    // We don't have per-line breakdown here — compute platform fee from total
+    const total        = booking.total_price ?? 0;
+    const platformFee  = Math.round(total * 0.05 * 100) / 100;
+    const subtotal     = Math.round((total - platformFee) * 100) / 100;
+    const baseNightly  = nights > 0 ? Math.round((subtotal / nights) * 100) / 100 : subtotal;
+
+    // ── Tenant preferences check ──────────────────────────────────────────
+
+    const tenantPrefsResult = await getPreferences(tenantId).catch(() => null);
+    const tenantEmailEnabled = tenantPrefsResult?.success
+      ? tenantPrefsResult.data?.email_notifications !== false &&
+        tenantPrefsResult.data?.notification_types?.booking_created !== false
+      : true;
+
+    if (tenantEmailEnabled) {
+      const tenantPrefsUrl = buildPreferenceUrlForUser(tenantId);
+      await emailService.sendDetailedBookingConfirmation({
+        to:              tenant.email,
+        userName:        tenant.full_name ?? 'there',
+        propertyTitle:   prop2.title ?? '',
+        propertyAddress: prop2.address,
+        propertyCity:    prop2.city,
+        propertyCountry: prop2.country,
+        propertyUrl:     prop2.slug ? `${frontendUrl}/properties/${prop2.slug}` : undefined,
+        checkIn:         booking.check_in ?? '',
+        checkOut:        booking.check_out ?? '',
+        checkInTime:     prop.check_in_time,
+        checkOutTime:    prop.check_out_time,
+        nights,
+        guestCount:      booking.guest_count ?? 1,
+        baseNightlyRate: baseNightly,
+        subtotal,
+        platformFee,
+        dynamicAdjustments: 0,
+        totalPrice:      total,
+        cancellationPolicy: prop2.cancellation_policy,
+        houseRules:      houseRules.length > 0 ? houseRules : undefined,
+        bookingId:       booking.id,
+        escrowId:        booking.escrow_id,
+        onChainId:       booking.on_chain_id,
+        preferencesUrl:  tenantPrefsUrl,
+      });
+    }
+
+    // ── Host notification ──────────────────────────────────────────────────
+
+    if (!host?.email) return;
+
+    const hostPrefsResult = await getPreferences(prop.owner_id).catch(() => null);
+    const hostEmailEnabled = hostPrefsResult?.success
+      ? hostPrefsResult.data?.email_notifications !== false &&
+        hostPrefsResult.data?.notification_types?.booking_created !== false
+      : true;
+
+    if (hostEmailEnabled) {
+      const hostPrefsUrl = buildPreferenceUrlForUser(prop.owner_id);
+      await emailService.sendHostBookingNotification({
+        hostEmail:       host.email,
+        to:              host.email,
+        userName:        host.full_name ?? 'Host',
+        tenantName:      tenant.full_name ?? 'A guest',
+        propertyTitle:   prop2.title ?? '',
+        propertyAddress: prop2.address,
+        propertyCity:    prop2.city,
+        propertyCountry: prop2.country,
+        checkIn:         booking.check_in ?? '',
+        checkOut:        booking.check_out ?? '',
+        checkInTime:     prop.check_in_time,
+        checkOutTime:    prop.check_out_time,
+        nights,
+        guestCount:      booking.guest_count ?? 1,
+        baseNightlyRate: baseNightly,
+        subtotal,
+        platformFee,
+        dynamicAdjustments: 0,
+        totalPrice:      total,
+        bookingId:       booking.id,
+        escrowId:        booking.escrow_id,
+        onChainId:       booking.on_chain_id,
+        preferencesUrl:  hostPrefsUrl,
+      });
+    }
   }
 }

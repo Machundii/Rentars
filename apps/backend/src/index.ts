@@ -20,6 +20,7 @@ import locationRoutes from './routes/location.routes';
 import { setupOpenApiRoutes } from './config/swagger';
 import { validateBlockchainConfig } from './blockchain/config.js';
 import { startSyncScheduler } from './services/cleanup-schedular.js';
+import { startRateRefreshLoop } from './services/exchangeRate.service.js';
 
 dotenv.config();
 
@@ -75,6 +76,7 @@ async function startServer(): Promise<void> {
   const server = app.listen(PORT, () => {
     console.log(`🚀 Rentars API running on http://localhost:${PORT}`);
     startSyncScheduler();
+    startRateRefreshLoop(); // pre-warm exchange-rate cache and keep it fresh
   });
 
   // Graceful shutdown handlers
