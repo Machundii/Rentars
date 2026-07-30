@@ -1,8 +1,8 @@
 import { Heart, Star } from 'lucide-react';
 import Link from 'next/link';
 import { useWishlist } from '@/hooks/useWishlist';
-import { formatUSDC } from '@/lib/format';
 import { type Property, propertyPath } from '@/types/property';
+import PriceDisplay from '@/components/currency/PriceDisplay';
 
 interface PropertyCardProps {
   property: Property;
@@ -43,7 +43,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
         <div className="h-48 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm">
           {property.images?.[0] ? (
             <img
-              src={property.images[0]}
+              src={property.images[0].url}
               alt={property.title}
               className="w-full h-full object-cover"
             />
@@ -60,10 +60,11 @@ export default function PropertyCard({ property }: PropertyCardProps) {
             {property.location}
           </p>
           <div className="mt-3 flex items-center justify-between">
-            <span className="font-bold text-blue-600">
-              {formatUSDC(property.price_per_night)}
-              <span className="text-xs font-normal text-gray-400"> / night</span>
-            </span>
+            <PriceDisplay
+              amountUsdc={property.price_per_night}
+              suffix="/ night"
+              size="sm"
+            />
             <span
               className={`text-xs px-2 py-1 rounded-full ${
                 property.available
