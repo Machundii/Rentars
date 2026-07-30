@@ -2,6 +2,16 @@ import type { NextFunction, Request, Response } from 'express';
 import { isDomainError, ValidationError } from '@/types/errors.js';
 import type { DomainError } from '@/types/errors.js';
 
+// ── Body-parser error types ───────────────────────────────────────────────────
+// express.json() throws a plain SyntaxError for malformed JSON and a custom
+// error with status 413 for payloads that exceed the configured limit.
+
+interface BodyParserError extends SyntaxError {
+  status?: number;
+  body?: unknown;
+  type?: string;
+}
+
 interface ErrorResponse {
   error: {
     code: string;
@@ -64,6 +74,36 @@ export function errorMiddleware(
   _next: NextFunction,
 ): void {
   console.error(err.stack);
+
+  // ── 413 Payload Too Large ─────────────────────────────────────────────────
+  // express.json() sets err.status = 413 and err.type = 'entity.too.large'
+  // when the body exceeds the configured limit.
+  const bodyParserErr = err as BodyParserError;
+  if (bodyParserErr.status === 413 || bodyParserErr.type === 'entity.too.large') {
+    res.status(413).json({
+      error: {
+        code: 'PAYLOAD_TOO_LARGE',
+        message: 'Request body exceeds the maximum allowed size.',
+      },
+    });
+    return;
+  }
+
+  // ── 400 Malformed JSON ────────────────────────────────────────────────────
+  // express.json() throws a SyntaxError with err.status = 400 and
+  // err.type = 'entity.parse.failed' when the body is not valid JSON.
+  if (
+    err instanceof SyntaxError &&
+    (bodyParserErr.status === 400 || bodyParserErr.type === 'entity.parse.failed')
+  ) {
+    res.status(400).json({
+      error: {
+        code: 'MALFORMED_JSON',
+        message: 'Request body contains invalid JSON.',
+      },
+    });
+    return;
+  }
 
   if (err instanceof ValidationError) {
     const response: ValidationErrorResponse = {
