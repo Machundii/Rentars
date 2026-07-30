@@ -19,6 +19,37 @@ export class FreighterError extends Error {
   }
 }
 
+const FREIGHTER_ERROR_MESSAGES: Record<FreighterError['code'], string> = {
+  NOT_INSTALLED: 'Freighter wallet is not installed. Please install it from https://www.freighter.app',
+  NOT_CONNECTED: 'Wallet is not connected in Freighter. Please open Freighter and connect your account.',
+  SIGN_FAILED: 'Failed to sign the transaction. Please try again.',
+  USER_REJECTED: 'You rejected the connection request. Please try again.',
+  NETWORK_ERROR: 'Freighter wallet request failed. Please try again.',
+  NETWORK_MISMATCH: 'Freighter is on a different network than this app.',
+  TIMEOUT: 'Signing request timed out. Please check your wallet and try again.',
+};
+
+export function getFreighterErrorMessage(
+  error: unknown,
+  fallback = 'Freighter wallet request failed. Please try again.',
+): string {
+  if (error instanceof FreighterError) {
+    return FREIGHTER_ERROR_MESSAGES[error.code] ?? error.message;
+  }
+
+  if (error instanceof Error) {
+    const lower = error.message.toLowerCase();
+    if (lower.includes('not installed')) return FREIGHTER_ERROR_MESSAGES.NOT_INSTALLED;
+    if (lower.includes('not connected')) return FREIGHTER_ERROR_MESSAGES.NOT_CONNECTED;
+    if (lower.includes('rejected')) return FREIGHTER_ERROR_MESSAGES.USER_REJECTED;
+    if (lower.includes('timed out')) return FREIGHTER_ERROR_MESSAGES.TIMEOUT;
+    if (lower.includes('network mismatch')) return error.message;
+    return error.message;
+  }
+
+  return fallback;
+}
+
 /**
  * Get the wallet's current network from Freighter
  */

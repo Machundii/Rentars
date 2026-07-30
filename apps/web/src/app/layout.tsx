@@ -6,6 +6,7 @@ import { Navbar } from '@/components/layout/Navbar';
 import { I18nProvider } from '@/lib/i18n/context';
 import { OfflineBanner } from '@/components/shared/OfflineBanner';
 import { isValidLocale, DEFAULT_LOCALE, LOCALE_COOKIE, type Locale } from '@/lib/i18n/config';
+import { WalletProvider } from '@/context/WalletContext';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -13,7 +14,7 @@ const inter = Inter({ subsets: ['latin'] });
 export const metadata: Metadata = {
   title: 'Rentars — Decentralized P2P Rentals on Stellar',
   description:
-    'Rentars is a peer-to-peer rental platform built on the Stellar blockchain. Minimal fees, instant payments, complete transparency.',
+      'Rentars is a peer-to-peer rental platform built on the Stellar blockchain. Minimal fees, instant payments, complete transparency.',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
@@ -28,7 +29,7 @@ export const metadata: Metadata = {
     siteName: 'Rentars',
     title: 'Rentars — Decentralized P2P Rentals on Stellar',
     description:
-      'Peer-to-peer rental platform built on the Stellar blockchain. Minimal fees, instant payments.',
+        'Peer-to-peer rental platform built on the Stellar blockchain. Minimal fees, instant payments.',
   },
 };
 
@@ -50,7 +51,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const initialLocale = await getInitialLocale();
 
   return (
-    <html lang={initialLocale}>
+      <html lang={initialLocale}>
       <head>
         {/* PWA theme color (redundant with Viewport export but required for Safari) */}
         <meta name="mobile-web-app-capable" content="yes" />
@@ -58,22 +59,24 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
       <body className={inter.className}>
-        {/* Skip to main content for keyboard and screen-reader users */}
-        <a href="#main-content" className="skip-nav">
-          Skip to main content
-        </a>
-        <I18nProvider initialLocale={initialLocale}>
-          <AuthProvider>
+      {/* Skip to main content for keyboard and screen-reader users */}
+      <a href="#main-content" className="skip-nav">
+        Skip to main content
+      </a>
+      <I18nProvider initialLocale={initialLocale}>
+        <AuthProvider>
+          <WalletProvider>
             <OfflineBanner />
             <Navbar />
             <main id="main-content" tabIndex={-1}>
               {children}
             </main>
-          </AuthProvider>
-        </I18nProvider>
+          </WalletProvider>
+        </AuthProvider>
+      </I18nProvider>
 
-        {/* Register service worker */}
-        <script
+      {/* Register service worker */}
+      <script
           dangerouslySetInnerHTML={{
             __html: `
               if ('serviceWorker' in navigator) {
@@ -85,8 +88,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               }
             `,
           }}
-        />
+      />
       </body>
-    </html>
+      </html>
   );
 }
