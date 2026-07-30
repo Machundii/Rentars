@@ -49,6 +49,9 @@ export interface Property {
   // Exact coordinates — redacted on public responses (see locationPrivacy.ts)
   latitude?: number | null;
   longitude?: number | null;
+  // Property classification (migration 00028)
+  property_type?: string;
+
   // House rules
   pets_allowed?: boolean;
   smoking_allowed?: boolean;
@@ -96,6 +99,7 @@ const DUPLICATE_FIELDS = [
   'bathrooms',
   'max_guests',
   'amenities',
+  'property_type',
   'pets_allowed',
   'smoking_allowed',
   'events_allowed',
@@ -111,6 +115,10 @@ export interface PropertySearchFilters {
   min_price?: number;
   max_price?: number;
   bedrooms?: number;
+  /** Minimum number of bathrooms (≥ filter). */
+  min_bathrooms?: number;
+  /** Filter by a single property type (exact match). */
+  property_type?: string;
   status?: string;
 }
 
@@ -579,6 +587,14 @@ export async function searchProperties(
     query = query.gte('bedrooms', filters.bedrooms);
   }
 
+  if (filters.min_bathrooms !== undefined) {
+    query = query.gte('bathrooms', filters.min_bathrooms);
+  }
+
+  if (filters.property_type) {
+    query = query.eq('property_type', filters.property_type);
+  }
+
   if (filters.status) {
     query = query.eq('status', filters.status);
   }
@@ -597,6 +613,14 @@ export async function searchProperties(
 export interface AdvancedSearchFilters extends PropertySearchFilters {
   query?: string;
   amenities?: string[];
+  /**
+   * Filter by one or more property types (set membership — OR logic).
+   * Values must match the constraint in migration 00028:
+   * Apartment | House | Villa | Condo | Studio | Room | Townhouse | Cabin | Loft | Boat
+   */
+  property_types?: string[];
+  /** Minimum number of bathrooms (≥ filter). */
+  min_bathrooms?: number;
   latitude?: number;
   longitude?: number;
   radius_km?: number;
@@ -615,6 +639,8 @@ export interface SearchResult {
   city?: string;
   country?: string;
   bedrooms?: number;
+  bathrooms?: number;
+  property_type?: string;
   amenities?: string[];
   distance_km?: number;
   rating?: number;
@@ -651,6 +677,19 @@ export async function advancedSearch(
 
   // Bedroom filter
   if (filters.bedrooms !== undefined) query = query.gte('bedrooms', filters.bedrooms);
+
+  // Bathroom filter (minimum bathrooms)
+  if (filters.min_bathrooms !== undefined) query = query.gte('bathrooms', filters.min_bathrooms);
+
+  // Property type filter (set membership — OR across supplied values)
+  if (filters.property_types && filters.property_types.length > 0) {
+    // Supabase .in() generates a SQL `column IN (v1, v2, ...)` clause which
+    // uses the idx_properties_property_type index on low-cardinality values.
+    query = query.in('property_type', filters.property_types);
+  } else if (filters.property_type) {
+    // Single-value convenience path (from simple searchProperties call)
+    query = query.eq('property_type', filters.property_type);
+  }
 
   // Guest capacity
   if (filters.guests !== undefined) query = query.gte('max_guests', filters.guests);
@@ -706,6 +745,8 @@ export async function advancedSearch(
     city: p.city,
     country: p.country,
     bedrooms: p.bedrooms,
+    bathrooms: p.bathrooms,
+    property_type: p.property_type,
     amenities: p.amenities,
     rating: 0, // TODO: calculate from reviews
     created_at: p.created_at,

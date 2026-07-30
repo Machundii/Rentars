@@ -43,6 +43,7 @@ import routes from './routes/index.js';
 import { setupOpenApiRoutes } from './config/swagger.js';
 import { validateBlockchainConfig } from './blockchain/config.js';
 import { startSyncScheduler } from './services/cleanup-schedular.js';
+import { startRateRefreshLoop } from './services/exchangeRate.service.js';
 
 // ── Validate blockchain config early (before the server binds) ────────────────
 const configErrors = validateBlockchainConfig();
@@ -121,6 +122,7 @@ async function startServer(): Promise<void> {
       logLevel: env.LOG_LEVEL,
     });
     startSyncScheduler();
+    startRateRefreshLoop(); // pre-warm exchange-rate cache and keep it fresh
   });
 
   // ── Graceful shutdown ─────────────────────────────────────────────────────

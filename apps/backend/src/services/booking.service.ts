@@ -14,7 +14,9 @@ import {
 } from '@/blockchain/bookingContract.js';
 import { trustlessWorkClient } from '@/blockchain/trustlessWork.js';
 import { loggingService } from './logging.service.js';
-import { createNotification } from './notification.service.js';
+import { createNotification, getPreferences } from './notification.service.js';
+import { emailService } from './email.service.js';
+import { buildPreferenceUrlForUser } from './preferenceToken.js';
 import { decodeCursor, buildCursorPage } from '../utils/cursor.js';
 import type { CursorPaginatedResult } from './notification.service.js';
 import type { ServiceResponse } from './index.js';
@@ -485,11 +487,17 @@ export class BookingService {
 
     const booking = bookingData as Booking;
 
-    // Notify tenant
+    // Notify tenant (in-app)
     createNotification(tenant_id, 'booking_created', { booking_id: booking.id, property_id }).catch(
       () => {},
     );
     incCounter(bookingsCreatedTotal, { property_id });
+
+    // Send detailed booking confirmation emails (tenant + host) — fire-and-forget,
+    // never block the booking creation response.
+    this.sendBookingEmails(booking, prop, tenant_id).catch((err) =>
+      console.warn('[BookingService] Confirmation email dispatch failed:', err),
+    );
 
     // 8. Create on-chain booking record (non-fatal on failure).
     if (prop.on_chain_id !== undefined && prop.on_chain_id !== null) {
