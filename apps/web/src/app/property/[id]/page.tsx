@@ -123,8 +123,7 @@ export async function generateMetadata({
     typeof property?.price_per_night === 'number' ? `$${property.price_per_night}/night` : undefined;
   const description = [sanitizeDescription(rawDescription), priceLine].filter(Boolean).join(' · ');
 
-  const ogImage =
-    toAbsoluteUrl(property?.images?.[0], siteUrl) ?? `${siteUrl}${FALLBACK_OG_IMAGE}`;
+  const ogImage = property?.images?.[0]?.url ?? undefined;
 
   return {
     title,
@@ -187,7 +186,7 @@ export default async function PropertyPage({
     '@type':    'LodgingBusiness',
     name:        property.title,
     description: property.description_full || property.description || 'Accommodation on Rentars',
-    image:       images,
+    image:       property.images?.[0]?.url,
     url:         canonicalUrl,
     address: {
       '@type':          'PostalAddress',
