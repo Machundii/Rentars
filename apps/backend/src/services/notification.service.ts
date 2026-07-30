@@ -16,6 +16,9 @@ export type NotificationType =
   | 'payment_received'
   | 'booking_reminder'
   | 'review_requested'
+  | 'review_submitted'
+  | 'host_response'
+  | 'dispute_initiated'
   | 'new_property'
   | 'system_alert';
 
@@ -51,6 +54,9 @@ const EMAIL_TEMPLATES: Partial<Record<NotificationType, string>> = {
   payment_received: 'Payment Received',
   booking_reminder: 'Booking Reminder',
   review_requested: 'Review Requested',
+  review_submitted: 'New Review Submitted',
+  host_response: 'Host Responded to Your Review',
+  dispute_initiated: 'Dispute Initiated',
   new_property: 'New Listing from a Host You Follow',
   system_alert: 'System Alert',
 };
