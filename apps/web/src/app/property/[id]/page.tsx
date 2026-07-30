@@ -98,7 +98,7 @@ export async function generateMetadata({
   const description =
     property?.description_full || property?.description || 'Book your stay on Rentars.';
 
-  const ogImage = property?.images?.[0] ?? undefined;
+  const ogImage = property?.images?.[0]?.url ?? undefined;
 
   return {
     title,
@@ -148,7 +148,7 @@ export default async function PropertyPage({
     '@type':    'LodgingBusiness',
     name:        property.title,
     description: property.description_full || property.description || 'Accommodation on Rentars',
-    image:       property.images?.[0],
+    image:       property.images?.[0]?.url,
     url:         canonicalUrl,
     address: {
       '@type':          'PostalAddress',
