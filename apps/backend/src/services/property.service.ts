@@ -13,6 +13,13 @@ import { CANONICAL_AMENITIES } from '@/types/amenities.js';
 import { sanitizeLongText, sanitizeShortText } from '@/utils/sanitize.js';
 import { generateSlug } from '@/utils/slug.js';
 
+export interface PropertyImage {
+  id: string;
+  url: string;
+  is_primary?: boolean;
+  display_order?: number;
+}
+
 const TTL_ALL = 60;
 const TTL_ONE = 300;
 const TTL_FEATURED = 120;
@@ -37,7 +44,7 @@ export interface Property {
   bathrooms?: number;
   max_guests?: number;
   amenities?: string[];
-  images?: string[];
+  images?: PropertyImage[];
   on_chain_id?: number;
   // Exact coordinates — redacted on public responses (see locationPrivacy.ts)
   latitude?: number | null;
@@ -183,6 +190,21 @@ export async function getPropertyById(
   }
 
   const property = data as Property;
+
+  const { data: imageRows, error: imageError } = await supabase
+    .from('property_images')
+    .select('id, url, is_primary, display_order')
+    .eq('property_id', id)
+    .order('display_order', { ascending: true });
+
+  if (!imageError && Array.isArray(imageRows)) {
+    property.images = imageRows.map((row) => ({
+      id: row.id,
+      url: row.url,
+      is_primary: row.is_primary,
+      display_order: row.display_order,
+    }));
+  }
 
   // Draft properties change frequently and are owner-only — do not cache them.
   if (property.status !== 'draft') {
