@@ -165,6 +165,17 @@ export async function deleteNotification(
   return { success: true };
 }
 
+export async function deleteAllNotifications(userId: string): Promise<ServiceResponse<number>> {
+  const { data, error } = await supabase
+    .from('notifications')
+    .delete()
+    .eq('user_id', userId)
+    .select('id');
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: data?.length ?? 0 };
+}
+
 export async function getPreferences(
   userId: string
 ): Promise<ServiceResponse<NotificationPreferences>> {

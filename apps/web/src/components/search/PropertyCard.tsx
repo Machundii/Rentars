@@ -43,7 +43,7 @@ export default function PropertyCard({ property }: PropertyCardProps) {
         <div className="h-48 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm">
           {property.images?.[0] ? (
             <img
-              src={property.images[0]}
+              src={property.images[0].url}
               alt={property.title}
               className="w-full h-full object-cover"
             />
