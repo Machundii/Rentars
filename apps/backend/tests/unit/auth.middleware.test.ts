@@ -6,7 +6,7 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import jwt from 'jsonwebtoken';
 import type { Response, NextFunction } from 'express';
-import { authenticate, type AuthRequest } from '../../src/middleware/auth.middleware.js';
+import { authenticate, requireRole, type AuthRequest } from '../../src/middleware/auth.middleware.js';
 
 const JWT_SECRET = 'mock-jwt-secret-min-32-characters-long';
 process.env.JWT_SECRET = JWT_SECRET;
@@ -104,5 +104,66 @@ describe('authenticate middleware', () => {
     // Note: if the JWT happens to parse, next would be called — behavior depends on implementation
     // We just verify no crash occurs
     expect(typeof res.status.mock.calls.length).toBe('number');
+  });
+});
+
+describe('requireRole middleware', () => {
+  let next: ReturnType<typeof mock>;
+
+  beforeEach(() => {
+    next = mock(() => {});
+  });
+
+  function makeAuthedReq(role?: string): AuthRequest {
+    return { user: role ? { id: 'user-1', role } : { id: 'user-1' } } as unknown as AuthRequest;
+  }
+
+  it('calls next() when the user has one of the allowed roles', () => {
+    const req = makeAuthedReq('admin');
+    const res = makeRes();
+
+    requireRole('admin')(req, res, next as unknown as NextFunction);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('calls next() when the user has any of multiple allowed roles', () => {
+    const req = makeAuthedReq('host');
+    const res = makeRes();
+
+    requireRole('admin', 'host')(req, res, next as unknown as NextFunction);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('returns 403 when the user role is not in the allowed set', () => {
+    const req = makeAuthedReq('user');
+    const res = makeRes();
+
+    requireRole('admin')(req, res, next as unknown as NextFunction);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Forbidden: insufficient role' });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 when req.user has no role claim', () => {
+    const req = makeAuthedReq(undefined);
+    const res = makeRes();
+
+    requireRole('admin')(req, res, next as unknown as NextFunction);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 when req.user is entirely absent', () => {
+    const req = {} as unknown as AuthRequest;
+    const res = makeRes();
+
+    requireRole('admin')(req, res, next as unknown as NextFunction);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
   });
 });

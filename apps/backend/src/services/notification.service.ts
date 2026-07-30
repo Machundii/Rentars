@@ -20,7 +20,9 @@ export type NotificationType =
   | 'host_response'
   | 'dispute_initiated'
   | 'new_property'
-  | 'system_alert';
+  | 'system_alert'
+  | 'report_created'
+  | 'message_received';
 
 export interface Notification {
   id: string;
@@ -59,6 +61,8 @@ const EMAIL_TEMPLATES: Partial<Record<NotificationType, string>> = {
   dispute_initiated: 'Dispute Initiated',
   new_property: 'New Listing from a Host You Follow',
   system_alert: 'System Alert',
+  report_created: 'New Report Submitted',
+  message_received: 'New Message',
 };
 
 export async function createNotification(
@@ -238,7 +242,7 @@ async function shouldSendPush(userId: string, type: NotificationType): Promise<b
   return typeEnabled !== false;
 }
 
-async function shouldSendInApp(userId: string, type: NotificationType): Promise<boolean> {
+export async function shouldSendInApp(userId: string, type: NotificationType): Promise<boolean> {
   const prefsResult = await getPreferences(userId);
   if (!prefsResult.success || !prefsResult.data) return true;
   const prefs = prefsResult.data;

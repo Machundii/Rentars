@@ -228,7 +228,10 @@ export async function flagReview(
   return { success: true };
 }
 
-export async function approveReview(reviewId: string): Promise<ServiceResponse<Review>> {
+export async function approveReview(
+  reviewId: string,
+  actorId?: string,
+): Promise<ServiceResponse<Review>> {
   const { data, error } = await supabase
     .from('reviews')
     .update({ moderation_status: 'approved', is_approved: true, is_flagged: false })
@@ -237,12 +240,19 @@ export async function approveReview(reviewId: string): Promise<ServiceResponse<R
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  if (actorId) {
+    const { record } = await import('./auditLog.service.js');
+    await record(actorId, 'review.approve', 'review', reviewId);
+  }
+
   return { success: true, data: data as Review };
 }
 
 export async function rejectReview(
   reviewId: string,
   reason: string,
+  actorId?: string,
 ): Promise<ServiceResponse<Review>> {
   if (!reason || reason.trim().length === 0) {
     return { success: false, error: 'Rejection reason is required' };
@@ -256,6 +266,12 @@ export async function rejectReview(
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  if (actorId) {
+    const { record } = await import('./auditLog.service.js');
+    await record(actorId, 'review.reject', 'review', reviewId, { reason });
+  }
+
   return { success: true, data: data as Review };
 }
 
@@ -273,8 +289,11 @@ export async function getPendingReviews(): Promise<ServiceResponse<Review[]>> {
 export async function moderateReview(
   reviewId: string,
   approve: boolean,
+  actorId?: string,
 ): Promise<ServiceResponse<Review>> {
-  return approve ? approveReview(reviewId) : rejectReview(reviewId, 'Rejected by moderator');
+  return approve
+    ? approveReview(reviewId, actorId)
+    : rejectReview(reviewId, 'Rejected by moderator', actorId);
 }
 
 export async function getFlaggedReviews(): Promise<ServiceResponse<Review[]>> {

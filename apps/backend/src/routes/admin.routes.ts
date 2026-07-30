@@ -217,4 +217,12 @@ router.get('/analytics/search/zero-results', getZeroResultQueriesHandler);
  */
 router.get('/analytics/search/volume', getSearchVolumeHandler);
 
+// ── Audit log ─────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v1/admin/audit-logs
+ * Query: actorId, action, targetType, targetId (optional filters), limit (default 50, max 200)
+ */
+router.get('/audit-logs', getAuditLogsHandler);
+
 export default router;

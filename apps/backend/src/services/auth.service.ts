@@ -27,6 +27,7 @@ export interface AuthUser {
   id: string;
   email: string | undefined;
   created_at: string | undefined;
+  role?: string;
 }
 
 export interface RegisterResult {
@@ -160,6 +161,7 @@ export async function loginUser(
     id: data.user.id,
     email: data.user.email,
     created_at: data.user.created_at,
+    role,
   };
 
   return { success: true, data: { token, refreshToken, user } };
@@ -284,7 +286,7 @@ export async function verifyWalletChallenge(
   // Find or create user with this Stellar address
   let { data: userData, error: userError } = await supabase
     .from('users')
-    .select('id, email, created_at')
+    .select('id, email, created_at, role')
     .eq('stellar_address', stellarAddress)
     .single();
 
@@ -307,12 +309,14 @@ export async function verifyWalletChallenge(
       );
     }
 
-    userData = newUser as { id: string; email: string | null; created_at: string };
+    userData = newUser as { id: string; email: string | null; created_at: string; role: string | null };
   }
+
+  const role = userData.role || 'tenant';
 
   // Issue JWT
   const token = jwt.sign(
-    { userId: userData.id },
+    { userId: userData.id, role },
     env.JWT_SECRET,
     { expiresIn: '7d' },
   );
@@ -321,6 +325,7 @@ export async function verifyWalletChallenge(
     id: userData.id,
     email: userData.email || undefined,
     created_at: userData.created_at,
+    role,
   };
 
   return {
