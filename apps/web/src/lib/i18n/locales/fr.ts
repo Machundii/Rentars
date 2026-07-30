@@ -41,6 +41,7 @@ const fr: TranslationSchema = {
     blockchainVerified: '✓ Vérifié sur la Blockchain',
     blockchainNote:
       'Ce bien est enregistré sur la blockchain Stellar pour plus de transparence et de sécurité.',
+    shareViaDevice: 'Partager…',
     shareOnTwitter: 'Partager sur Twitter',
     shareOnFacebook: 'Partager sur Facebook',
     copyLink: 'Copier le lien',
