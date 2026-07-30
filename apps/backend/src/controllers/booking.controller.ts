@@ -95,6 +95,62 @@ export async function confirmBooking(req: Request, res: Response): Promise<void>
   res.json(result.data);
 }
 
+/**
+ * POST /api/v1/bookings/:id/complete
+ *
+ * Marks a Confirmed booking as Completed.
+ * Only the booking tenant may call this endpoint.
+ */
+export async function completeBooking(req: Request, res: Response): Promise<void> {
+  const authUser = (req as Request & { user?: { id: string } }).user;
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const result = await bookingService.completeBooking(req.params.id, authUser.id);
+
+  if (!result.success) {
+    const statusCode =
+      result.error?.startsWith('Forbidden') ? 403
+      : result.error === 'Booking not found'  ? 404
+      : 400;
+    res.status(statusCode).json({ error: result.error });
+    return;
+  }
+
+  res.json(result.data);
+}
+
+/**
+ * POST /api/v1/bookings/:id/dispute
+ *
+ * Opens a dispute on a Confirmed booking.
+ * Only the booking tenant may call this endpoint.
+ * Optional body: { reason: string }
+ */
+export async function disputeBooking(req: Request, res: Response): Promise<void> {
+  const authUser = (req as Request & { user?: { id: string } }).user;
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : undefined;
+  const result = await bookingService.disputeBooking(req.params.id, authUser.id, reason);
+
+  if (!result.success) {
+    const statusCode =
+      result.error?.startsWith('Forbidden') ? 403
+      : result.error === 'Booking not found'  ? 404
+      : 400;
+    res.status(statusCode).json({ error: result.error });
+    return;
+  }
+
+  res.json(result.data);
+}
+
 export async function updateBooking(req: Request, res: Response): Promise<void> {
   const result = await bookingService.updateBooking(req.params.id, req.body);
 

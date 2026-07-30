@@ -13,6 +13,8 @@ export interface SearchResult {
   bathrooms?: number;
   property_type?: string;
   amenities?: string[];
+  images?: string[];
+  slug?: string;
   distance_km?: number;
   rating?: number;
   is_featured?: boolean;
@@ -26,9 +28,19 @@ export interface ZeroResultSuggestion {
   relaxed_filters: Partial<FilterState>;
 }
 
+export interface SearchPage {
+  data: SearchResult[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
+
 interface UseSearchOptions {
   debounceMs?: number;
 }
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 export function usePropertySearch(options: UseSearchOptions = {}) {
   const { debounceMs = 300 } = options;
@@ -66,6 +78,12 @@ export function usePropertySearch(options: UseSearchOptions = {}) {
 
   // ── Advanced search ─────────────────────────────────────────────────────────
 
+  const abortRef      = useRef<AbortController | null>(null);
+  const debounceRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastQueryRef  = useRef<string>('');
+  const lastFiltersRef = useRef<Partial<FilterState>>({});
+
+  // ── Core search ────────────────────────────────────────────────────────────
   const search = useCallback(
     async (query: string, filters: Partial<FilterState> = {}, pageNum = 1) => {
       if (abortControllerRef.current) abortControllerRef.current.abort();
@@ -73,7 +91,8 @@ export function usePropertySearch(options: UseSearchOptions = {}) {
 
       setLoading(true);
       setError(null);
-      lastQueryRef.current = query;
+      lastQueryRef.current   = query;
+      lastFiltersRef.current = filters;
 
       try {
         const params = buildParams(query, filters, pageNum);
@@ -93,6 +112,8 @@ export function usePropertySearch(options: UseSearchOptions = {}) {
         if (err instanceof Error && err.name === 'AbortError') return;
         setError(err instanceof Error ? err.message : 'Search error');
         setResults([]);
+        setTotal(0);
+        setHasMore(false);
         setZeroResultSuggestions([]);
         setHistogram(null);
       } finally {
@@ -104,6 +125,7 @@ export function usePropertySearch(options: UseSearchOptions = {}) {
 
   // ── Map bounds search ───────────────────────────────────────────────────────
 
+  // ── Map viewport search ────────────────────────────────────────────────────
   const searchByBounds = useCallback(
     (bounds: LatLngBounds, filters: Partial<FilterState> = {}) => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -140,6 +162,7 @@ export function usePropertySearch(options: UseSearchOptions = {}) {
           const data = await response.json();
           setResults(data.data ?? []);
           setPage(1);
+          setHasMore(false);
         } catch (err) {
           if (err instanceof Error && err.name === 'AbortError') return;
           setError(err instanceof Error ? err.message : 'Search error');
@@ -203,6 +226,9 @@ export function usePropertySearch(options: UseSearchOptions = {}) {
 
   return {
     results,
+    total,
+    page,
+    hasMore,
     loading,
     error,
     suggestions,
@@ -210,6 +236,7 @@ export function usePropertySearch(options: UseSearchOptions = {}) {
     histogram,
     page,
     search,
+    loadMore,
     searchByBounds,
     getSuggestions,
     getTrending,

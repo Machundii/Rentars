@@ -263,7 +263,9 @@ export async function advancedSearchHandler(req: Request, res: Response): Promis
   }
 
   const viewerId = (req as AuthRequest).userId;
-  await trackSearch(filters.query || '', result.data.length, viewerId, filters);
+  const { data: resultData, total, page: resultPage, limit: resultLimit, hasMore } = result.data;
+
+  await trackSearch(filters.query || '', resultData.length, viewerId, filters);
 
   // Compute histogram server-side (price filter excluded) — run in parallel with redaction
   const [histogramResult] = await Promise.all([
@@ -271,7 +273,7 @@ export async function advancedSearchHandler(req: Request, res: Response): Promis
   ]);
 
   // Search results are always public — redact coordinates
-  const redacted = result.data.map((p) =>
+  const redacted = resultData.map((p) =>
     redactExactCoordinates(p as { id: string; latitude?: number; longitude?: number }) as unknown as Record<string, unknown>,
   );
 

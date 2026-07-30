@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import {
   cancelBooking,
+  completeBooking,
   confirmBooking,
   createBooking,
   deleteBooking,
+  disputeBooking,
   getBooking,
   getBookingCalendar,
   getBookingReceipt,
@@ -42,10 +44,27 @@ router.get('/:id/calendar.ics', authenticate, getBookingCalendar);
 router.get('/:id/receipt.pdf', authenticate, getBookingReceipt);
 
 // POST /api/v1/bookings  (requires email verification)
-router.post('/', authenticate, requireEmailVerified, bookingRateLimiter, validateBody(createBookingSchema), createBooking);
+router.post(
+  '/',
+  authenticate,
+  requireEmailVerified,
+  bookingRateLimiter,
+  validateBody(createBookingSchema),
+  createBooking,
+);
 
 // POST /api/v1/bookings/:id/confirm
+// Tenant confirms check-in → releases escrow to host → status: Confirmed
 router.post('/:id/confirm', authenticate, confirmBooking);
+
+// POST /api/v1/bookings/:id/complete
+// Tenant marks stay as completed → status: Completed
+router.post('/:id/complete', authenticate, completeBooking);
+
+// POST /api/v1/bookings/:id/dispute
+// Tenant raises a dispute → status: Disputed (escrow held)
+// Body: { reason?: string }
+router.post('/:id/dispute', authenticate, disputeBooking);
 
 // POST /api/v1/bookings/:id/cancel
 router.post('/:id/cancel', authenticate, cancelBooking);

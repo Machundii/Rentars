@@ -25,6 +25,11 @@ export interface FilterState {
   sortBy?: 'price_asc' | 'price_desc' | 'newest' | 'distance' | 'rating';
 }
 
+interface FilterSidebarProps {
+  filters?: Partial<FilterState>;
+  onFilterChange: (filters: FilterState) => void;
+}
+
 const AMENITIES = [
   'WiFi', 'Kitchen', 'Parking', 'Pool', 'Gym',
   'Washer', 'Dryer', 'AC', 'Heating', 'TV', 'Balcony',
@@ -355,7 +360,7 @@ export default function FilterSidebar({ onFilterChange, histogram }: FilterSideb
                     : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-gray-500'
                 }`}
               >
-                {num}
+                {num === 5 ? '5+' : num}
               </button>
             ))}
           </div>

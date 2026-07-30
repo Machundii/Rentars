@@ -53,9 +53,9 @@ export const createBookingSchema = z
 // ─── Update booking schema ────────────────────────────────────────────────────
 
 export const updateBookingSchema = z.object({
-  status: z.enum(['Pending', 'Confirmed', 'Cancelled', 'Completed'], {
+  status: z.enum(['Pending', 'Confirmed', 'Cancelled', 'Completed', 'Disputed'], {
     errorMap: () => ({
-      message: 'status must be one of: Pending, Confirmed, Cancelled, Completed',
+      message: 'status must be one of: Pending, Confirmed, Cancelled, Completed, Disputed',
     }),
   }).optional(),
   escrow_id: z.string().max(255).optional(),
