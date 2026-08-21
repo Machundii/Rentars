@@ -107,7 +107,15 @@ async function handleRejection(
     message,
   );
 
-  res.status(429).json({ error: message });
+  res.status(429).json({
+    error: {
+      code: 'RATE_LIMIT_EXCEEDED',
+      message,
+      details: {
+        retryAfter: Math.ceil(limiterRes.msBeforeNext / 1000),
+      },
+    },
+  });
 }
 
 export function generalRateLimiter(req: Request, res: Response, next: NextFunction): void {
@@ -178,6 +186,73 @@ export function messageRateLimiter(req: AuthRequest, res: Response, next: NextFu
     .catch((limiterRes) => {
       handleRejection(req, res, limiterRes, 'message', key, 'Too many messages sent, please slow down.');
     });
+}
+
+/**
+ * Factory that creates a per-user rate-limiter middleware.
+ *
+ * The limiter key is resolved from `req.user?.id` (the authenticated user id)
+ * so that two users sharing the same NAT/IP are tracked independently.
+ * When no authenticated user is present the key falls back to the client IP.
+ *
+ * @param windowMs  - Sliding window length in milliseconds.
+ * @param max       - Maximum number of requests allowed in the window.
+ * @param keyPrefix - Redis key namespace (e.g. "rl:user:booking").
+ *
+ * @example
+ * ```ts
+ * const bookingCreationLimiter = createUserRateLimiter({
+ *   windowMs: env.BOOKING_RATE_LIMIT_WINDOW_MS,
+ *   max: env.BOOKING_RATE_LIMIT_MAX,
+ *   keyPrefix: 'rl:user:booking',
+ * });
+ * ```
+ */
+export function createUserRateLimiter({
+  windowMs,
+  max,
+  keyPrefix,
+}: {
+  windowMs: number;
+  max: number;
+  keyPrefix: string;
+}): (req: AuthRequest, res: Response, next: NextFunction) => void {
+  const durationSeconds = Math.ceil(windowMs / 1000);
+
+  const limiter: RateLimiterRedis | RateLimiterMemory = useRedis
+    ? new RateLimiterRedis({
+        storeClient: redisClient,
+        keyPrefix,
+        points: max,
+        duration: durationSeconds,
+      })
+    : new RateLimiterMemory({ keyPrefix, points: max, duration: durationSeconds });
+
+  return function userRateLimiterMiddleware(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction,
+  ): void {
+    // Prefer authenticated user id; fall back to IP for unauthenticated callers.
+    const rawIdentity = req.user?.id ?? req.userId ?? req.ip ?? 'unknown';
+
+    limiter
+      .consume(rawIdentity)
+      .then((limiterRes) => {
+        setRateLimitHeaders(res, limiterRes);
+        next();
+      })
+      .catch((limiterRes) => {
+        handleRejection(
+          req,
+          res,
+          limiterRes,
+          keyPrefix,
+          rawIdentity,
+          'Too many booking requests. Please slow down and try again later.',
+        );
+      });
+  };
 }
 
 // Backward compatibility export
