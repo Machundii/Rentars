@@ -9,6 +9,9 @@ import {
   flagReview,
   moderateReview,
   getFlaggedReviews,
+  approveReview,
+  rejectReview,
+  getPendingReviews,
 } from '../services/review.service.js';
 
 export async function createReview(req: AuthRequest, res: Response): Promise<void> {
@@ -66,9 +69,16 @@ export async function respondToReview(req: AuthRequest, res: Response): Promise<
     res.status(400).json({ error: 'response is required' });
     return;
   }
+  if (response.trim().length > 1000) {
+    res.status(400).json({ error: 'Response must be at most 1000 characters' });
+    return;
+  }
   const result = await addHostResponse(req.params.id, hostId, response.trim());
   if (!result.success) {
-    res.status(400).json({ error: result.error });
+    const isOwnershipError =
+      result.error === 'Only the property owner can respond to this review' ||
+      result.error === 'Only the reviewed host can respond';
+    res.status(isOwnershipError ? 403 : 400).json({ error: result.error });
     return;
   }
   res.json(result.data);
@@ -94,7 +104,7 @@ export async function moderateReviewHandler(req: AuthRequest, res: Response): Pr
     res.status(400).json({ error: 'approve (boolean) is required' });
     return;
   }
-  const result = await moderateReview(req.params.id, approve);
+  const result = await moderateReview(req.params.id, approve, req.userId);
   if (!result.success) {
     res.status(400).json({ error: result.error });
     return;
@@ -106,6 +116,38 @@ export async function listFlaggedReviews(_req: Request, res: Response): Promise<
   const result = await getFlaggedReviews();
   if (!result.success) {
     res.status(500).json({ error: result.error });
+    return;
+  }
+  res.json(result.data);
+}
+
+export async function listPendingReviews(_req: Request, res: Response): Promise<void> {
+  const result = await getPendingReviews();
+  if (!result.success) {
+    res.status(500).json({ error: result.error });
+    return;
+  }
+  res.json(result.data);
+}
+
+export async function approveReviewHandler(req: AuthRequest, res: Response): Promise<void> {
+  const result = await approveReview(req.params.id, req.userId);
+  if (!result.success) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.json(result.data);
+}
+
+export async function rejectReviewHandler(req: AuthRequest, res: Response): Promise<void> {
+  const { reason } = req.body;
+  if (!reason || typeof reason !== 'string') {
+    res.status(400).json({ error: 'reason (string) is required' });
+    return;
+  }
+  const result = await rejectReview(req.params.id, reason, req.userId);
+  if (!result.success) {
+    res.status(400).json({ error: result.error });
     return;
   }
   res.json(result.data);

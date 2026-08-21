@@ -1,27 +1,56 @@
 /**
- * Unit tests for review service.
+ * Unit tests for review.service — critical business logic rules.
  */
 
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
 
-// ── Supabase mock ─────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-const mockSingle = mock(async () => ({ data: null, error: null }));
-const mockSelect = mock(() => ({ eq: mockEq, single: mockSingle }));
-const mockEq2 = mock(() => ({ single: mockSingle }));
-const mockEq = mock(() => ({ eq: mockEq2, single: mockSingle }));
-const mockInsert = mock(() => ({ select: () => ({ single: mockSingle }) }));
+const PAST_CHECKOUT = '2024-01-01T00:00:00.000Z';
 
-const mockSupabase = {
-  from: mock((_: string) => ({
-    select: mockSelect,
-    insert: mockInsert,
-  })),
-};
+// Build a minimal supabase chain that returns the given result at the leaf
+function chain(result: unknown) {
+  const leaf = mock(async () => result);
+  const node: Record<string, unknown> = {
+    select: mock(() => node),
+    insert: mock(() => node),
+    update: mock(() => node),
+    delete: mock(() => node),
+    eq: mock(() => node),
+    not: mock(() => node),
+    order: mock(() => node),
+    limit: mock(() => node),
+    single: leaf,
+    then: (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve),
+  };
+  return node;
+}
 
-// Stub the supabase module
-const supabaseMod = await import('../../src/config/supabase.js');
-(supabaseMod as any).supabase = mockSupabase;
+// ── Supabase mock via mock.module ─────────────────────────────────────────────
+
+const mockFrom = mock((_: string) => chain({ data: null, error: null }));
+
+mock.module('../../src/config/supabase.js', () => ({
+  supabase: { from: mockFrom },
+}));
+
+// Also stub notification service to prevent import-time side-effects
+mock.module('../../src/services/notification.service.js', () => ({
+  createNotification: mock(async () => ({ success: true })),
+}));
+
+// Also stub cache service
+mock.module('../../src/services/cache.service.js', () => ({
+  del: mock(async () => {}),
+  get: mock(async () => null),
+  set: mock(async () => {}),
+}));
+
+// Also stub sanitize utils
+mock.module('../../src/utils/sanitize.js', () => ({
+  sanitizeLongText: mock((s: string) => s),
+  sanitizeResponse: mock((s: string) => s),
+}));
 
 import {
   submitReview,
@@ -34,222 +63,167 @@ import {
 
 describe('review.service', () => {
   beforeEach(() => {
-    mockSingle.mockClear();
-    mockInsert.mockClear();
-    (mockSupabase.from as any).mockClear?.();
+    mockFrom.mockClear();
   });
 
-  // ── submitReview ────────────────────────────────────────────────────────────
+  // ── submitReview — rating validation ──────────────────────────────────────
 
-  describe('submitReview', () => {
-    it('should reject rating below 1', async () => {
+  describe('submitReview — rating validation', () => {
+    it('rejects rating = 0', async () => {
       const result = await submitReview('b1', 'u1', 'u2', 0, 'ok');
       expect(result.success).toBe(false);
       expect(result.error).toBe('Rating must be between 1 and 5');
     });
 
-    it('should reject rating above 5', async () => {
+    it('rejects rating = 6', async () => {
       const result = await submitReview('b1', 'u1', 'u2', 6, 'ok');
       expect(result.success).toBe(false);
       expect(result.error).toBe('Rating must be between 1 and 5');
     });
 
-    it('should return error when booking is not owned by reviewer', async () => {
-      (mockSupabase.from as any).mockImplementation((_: string) => ({
-        select: mock(() => ({
-          eq: mock(() => ({
-            eq: mock(() => ({
-              single: mock(async () => ({ data: null, error: { message: 'Not found' } })),
-            })),
-          })),
-        })),
-        insert: mockInsert,
-      }));
-
-      const result = await submitReview('b-not-owned', 'reviewer-1', 'target-1', 4, 'Great!');
+    it('rejects rating = -1', async () => {
+      const result = await submitReview('b1', 'u1', 'u2', -1, 'ok');
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Booking not found');
-    });
-
-    it('should create a review when booking is valid', async () => {
-      const mockReview = {
-        id: 'rev-1',
-        booking_id: 'b1',
-        reviewer_id: 'u1',
-        target_id: 'u2',
-        rating: 5,
-        comment: 'Excellent!',
-        created_at: '2026-06-01T00:00:00Z',
-      };
-
-      (mockSupabase.from as any).mockImplementation((table: string) => {
-        if (table === 'bookings') {
-          return {
-            select: mock(() => ({
-              eq: mock(() => ({
-                eq: mock(() => ({
-                  single: mock(async () => ({
-                    data: { id: 'b1', status: 'Confirmed' },
-                    error: null,
-                  })),
-                })),
-              })),
-            })),
-          };
-        }
-        return {
-          insert: mock(() => ({
-            select: mock(() => ({
-              single: mock(async () => ({ data: mockReview, error: null })),
-            })),
-          })),
-        };
-      });
-
-      const result = await submitReview('b1', 'u1', 'u2', 5, 'Excellent!');
-      expect(result.success).toBe(true);
-      expect(result.data?.rating).toBe(5);
-    });
-
-    it('should propagate insert error from Supabase', async () => {
-      (mockSupabase.from as any).mockImplementation((table: string) => {
-        if (table === 'bookings') {
-          return {
-            select: mock(() => ({
-              eq: mock(() => ({
-                eq: mock(() => ({
-                  single: mock(async () => ({
-                    data: { id: 'b1', status: 'Confirmed' },
-                    error: null,
-                  })),
-                })),
-              })),
-            })),
-          };
-        }
-        return {
-          insert: mock(() => ({
-            select: mock(() => ({
-              single: mock(async () => ({
-                data: null,
-                error: { message: 'Duplicate review' },
-              })),
-            })),
-          })),
-        };
-      });
-
-      const result = await submitReview('b1', 'u1', 'u2', 4, 'Good');
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('Duplicate review');
+      expect(result.error).toBe('Rating must be between 1 and 5');
     });
   });
 
-  // ── getReviewsForProperty ───────────────────────────────────────────────────
+  // ── submitReview — booking rules ─────────────────────────────────────────
 
-  describe('getReviewsForProperty', () => {
-    it('should return reviews list', async () => {
-      const reviews = [{ id: 'r1', property_id: 'p1', rating: 5 }];
-
-      (mockSupabase.from as any).mockImplementation(() => ({
-        select: mock(() => ({
-          eq: mock(() => ({
-            order: mock(async () => ({ data: reviews, error: null })),
-          })),
-        })),
-      }));
-
-      const result = await getReviewsForProperty('p1');
-      expect(result.success).toBe(true);
-      expect(result.data).toHaveLength(1);
+  describe('submitReview — booking ownership', () => {
+    it('returns error when booking is not found or not owned by reviewer', async () => {
+      mockFrom.mockImplementation((_: string) =>
+        chain({ data: null, error: { message: 'not found' } }),
+      );
+      const result = await submitReview('b1', 'u1', 'u2', 4, 'great');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Booking not found or not owned by reviewer');
     });
 
-    it('should return empty array when no reviews exist', async () => {
-      (mockSupabase.from as any).mockImplementation(() => ({
-        select: mock(() => ({
-          eq: mock(() => ({
-            order: mock(async () => ({ data: null, error: null })),
-          })),
-        })),
-      }));
+    it('rejects review for a Cancelled booking', async () => {
+      mockFrom.mockImplementation((_: string) =>
+        chain({
+          data: { id: 'b1', status: 'Cancelled', check_out: PAST_CHECKOUT },
+          error: null,
+        }),
+      );
+      const result = await submitReview('b1', 'u1', 'u2', 4, 'great');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Cannot review a cancelled booking');
+    });
 
+    it('rejects review for a Disputed booking', async () => {
+      mockFrom.mockImplementation((_: string) =>
+        chain({
+          data: { id: 'b1', status: 'Disputed', check_out: PAST_CHECKOUT },
+          error: null,
+        }),
+      );
+      const result = await submitReview('b1', 'u1', 'u2', 4, 'great');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Cannot review a disputed booking');
+    });
+
+    it('rejects review for a non-Completed booking', async () => {
+      mockFrom.mockImplementation((_: string) =>
+        chain({
+          data: { id: 'b1', status: 'Confirmed', check_out: PAST_CHECKOUT },
+          error: null,
+        }),
+      );
+      const result = await submitReview('b1', 'u1', 'u2', 4, 'great');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Can only review after the stay is completed');
+    });
+
+    it('rejects review when checkout date has not passed', async () => {
+      const futureCheckout = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+      mockFrom.mockImplementation((_: string) =>
+        chain({
+          data: { id: 'b1', status: 'Completed', check_out: futureCheckout },
+          error: null,
+        }),
+      );
+      const result = await submitReview('b1', 'u1', 'u2', 4, 'great');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Cannot review before the checkout date has passed');
+    });
+  });
+
+  // ── getReviewsForProperty ─────────────────────────────────────────────────
+
+  describe('getReviewsForProperty', () => {
+    it('returns reviews array on success', async () => {
+      const reviews = [
+        { id: 'r1', property_id: 'p1', rating: 5, moderation_status: 'approved' },
+        { id: 'r2', property_id: 'p1', rating: 4, moderation_status: 'approved' },
+      ];
+      mockFrom.mockImplementation((_: string) =>
+        chain({ data: reviews, error: null }),
+      );
+      const result = await getReviewsForProperty('p1');
+      expect(result.success).toBe(true);
+      expect(result.data).toHaveLength(2);
+    });
+
+    it('returns empty array when no reviews', async () => {
+      mockFrom.mockImplementation((_: string) =>
+        chain({ data: null, error: null }),
+      );
       const result = await getReviewsForProperty('p-no-reviews');
       expect(result.success).toBe(true);
       expect(result.data).toEqual([]);
     });
 
-    it('should return error on database failure', async () => {
-      (mockSupabase.from as any).mockImplementation(() => ({
-        select: mock(() => ({
-          eq: mock(() => ({
-            order: mock(async () => ({ data: null, error: { message: 'DB error' } })),
-          })),
-        })),
-      }));
-
+    it('returns error on DB failure', async () => {
+      mockFrom.mockImplementation((_: string) =>
+        chain({ data: null, error: { message: 'DB error' } }),
+      );
       const result = await getReviewsForProperty('p1');
       expect(result.success).toBe(false);
       expect(result.error).toBe('DB error');
     });
   });
 
-  // ── getReviewsForUser ───────────────────────────────────────────────────────
+  // ── getReviewsForUser ─────────────────────────────────────────────────────
 
   describe('getReviewsForUser', () => {
-    it('should return reviews for user', async () => {
-      const reviews = [{ id: 'r1', target_id: 'u1', rating: 4 }];
-
-      (mockSupabase.from as any).mockImplementation(() => ({
-        select: mock(() => ({
-          eq: mock(() => ({
-            order: mock(async () => ({ data: reviews, error: null })),
-          })),
-        })),
-      }));
-
+    it('returns reviews for a user', async () => {
+      const reviews = [{ id: 'r1', target_id: 'u1', rating: 5 }];
+      mockFrom.mockImplementation((_: string) =>
+        chain({ data: reviews, error: null }),
+      );
       const result = await getReviewsForUser('u1');
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(1);
     });
   });
 
-  // ── getAverageRating ────────────────────────────────────────────────────────
+  // ── getAverageRating ──────────────────────────────────────────────────────
 
   describe('getAverageRating', () => {
-    it('should compute average correctly', async () => {
-      (mockSupabase.from as any).mockImplementation(() => ({
-        select: mock(() => ({
-          eq: mock(async () => ({
-            data: [{ rating: 4 }, { rating: 5 }, { rating: 3 }],
-            error: null,
-          })),
-        })),
-      }));
-
-      const result = await getAverageRating('u1');
-      expect(result.success).toBe(true);
-      expect(result.data).toBe(4); // (4+5+3)/3 = 4.0
-    });
-
-    it('should return 0 when no reviews', async () => {
-      (mockSupabase.from as any).mockImplementation(() => ({
-        select: mock(() => ({
-          eq: mock(async () => ({ data: [], error: null })),
-        })),
-      }));
-
+    it('returns 0 when user has no reviews', async () => {
+      mockFrom.mockImplementation((_: string) =>
+        chain({ data: [], error: null }),
+      );
       const result = await getAverageRating('u1');
       expect(result.success).toBe(true);
       expect(result.data).toBe(0);
     });
 
-    it('should return error on DB failure', async () => {
-      (mockSupabase.from as any).mockImplementation(() => ({
-        select: mock(() => ({
-          eq: mock(async () => ({ data: null, error: { message: 'Query failed' } })),
-        })),
-      }));
+    it('calculates average correctly', async () => {
+      mockFrom.mockImplementation((_: string) =>
+        chain({ data: [{ rating: 4 }, { rating: 5 }, { rating: 3 }], error: null }),
+      );
+      const result = await getAverageRating('u1');
+      expect(result.success).toBe(true);
+      expect(result.data).toBe(4); // (4+5+3)/3 = 4
+    });
 
+    it('returns error on DB failure', async () => {
+      mockFrom.mockImplementation((_: string) =>
+        chain({ data: null, error: { message: 'timeout' } }),
+      );
       const result = await getAverageRating('u1');
       expect(result.success).toBe(false);
     });

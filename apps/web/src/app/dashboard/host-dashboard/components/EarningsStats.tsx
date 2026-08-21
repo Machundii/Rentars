@@ -15,7 +15,8 @@ export default function EarningsStats({
   totalEarnings,
   pendingPayout,
 }: EarningsStatsProps) {
-  const growth = ((thisMonth - lastMonth) / lastMonth * 100).toFixed(1);
+  const growthValue = lastMonth === 0 ? 0 : ((thisMonth - lastMonth) / lastMonth) * 100;
+  const growth = growthValue.toFixed(1);
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -25,8 +26,9 @@ export default function EarningsStats({
           <DollarSign size={20} className="text-blue-600" />
         </div>
         <p className="text-3xl font-bold text-blue-900">{thisMonth} USDC</p>
-        <p className={`text-sm mt-2 ${growth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-          {growth >= 0 ? '+' : ''}{growth}% vs last month
+        <p className={`text-sm mt-2 ${growthValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+          {growthValue >= 0 ? '+' : ''}
+          {growth}% vs last month
         </p>
       </div>
 

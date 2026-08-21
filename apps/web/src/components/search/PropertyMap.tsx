@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import type { LatLngBounds, Map as LeafletMap } from 'leaflet';
 import type { Property } from '@/types/property';
-import { useGeolocation } from '@/hooks/useGeolocation';
+import { useGeolocation, type GeoPosition } from '@/hooks/useGeolocation';
 
 // ── Dynamic imports (no SSR) ──────────────────────────────────────────────────
 const MapContainer = dynamic(() => import('react-leaflet').then((m) => m.MapContainer), {
@@ -22,6 +22,12 @@ export interface PropertyMapProps {
   onBoundsChanged?: (bounds: LatLngBounds) => void;
   /** Highlighted property id (e.g. hovered card) */
   activePropertyId?: string;
+  /**
+   * Called when "use my location" resolves both coordinates and a readable label.
+   * Use this to populate the search field and trigger a radius search.
+   * `label` is null when reverse geocoding failed — position is still valid.
+   */
+  onUserLocation?: (position: GeoPosition, label: string | null) => void;
 }
 
 export default function PropertyMap({
@@ -29,11 +35,25 @@ export default function PropertyMap({
   onPropertyClick,
   onBoundsChanged,
   activePropertyId,
+  onUserLocation,
 }: PropertyMapProps) {
-  const { position, loading: geoLoading, locate } = useGeolocation();
   const [center, setCenter] = useState<[number, number]>([40.7128, -74.006]);
   const [mapKey, setMapKey] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Stable callback reference — rebuild only when parent's onUserLocation changes.
+  const handleLocation = useCallback(
+    (pos: GeoPosition, label: string | null) => {
+      setCenter([pos.lat, pos.lng]);
+      setMapKey((k) => k + 1);
+      onUserLocation?.(pos, label);
+    },
+    [onUserLocation],
+  );
+
+  const { position, loading: geoLoading, error: geoError, locate } = useGeolocation({
+    onLocation: handleLocation,
+  });
 
   const validProperties = useMemo(
     () =>
@@ -44,7 +64,7 @@ export default function PropertyMap({
     [properties],
   );
 
-  // Fit map to property bounds when list changes
+  // Fit map to property bounds when list changes.
   useEffect(() => {
     if (validProperties.length === 0) return;
     const lats = validProperties.map((p) => p.lat);
@@ -54,14 +74,6 @@ export default function PropertyMap({
     setCenter([midLat, midLng]);
     setMapKey((k) => k + 1);
   }, [validProperties]);
-
-  // Pan to user location when obtained
-  useEffect(() => {
-    if (position) {
-      setCenter([position.lat, position.lng]);
-      setMapKey((k) => k + 1);
-    }
-  }, [position]);
 
   const handleBoundsChanged = (bounds: LatLngBounds) => {
     if (!onBoundsChanged) return;
@@ -77,20 +89,53 @@ export default function PropertyMap({
         disabled={geoLoading}
         title="Use my location"
         className="absolute top-3 right-3 z-[1000] bg-white border border-gray-300 rounded-lg p-2 shadow hover:bg-gray-50 disabled:opacity-50 transition"
-        aria-label="Find properties near me"
+        aria-label={geoLoading ? 'Finding your location…' : 'Find properties near me'}
       >
         {geoLoading ? (
-          <svg className="w-5 h-5 animate-spin text-blue-600" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <svg
+            className="w-5 h-5 animate-spin text-blue-600"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
           </svg>
         ) : (
-          <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 2a7 7 0 017 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 017-7z" />
+          <svg
+            className="w-5 h-5 text-blue-600"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 2a7 7 0 017 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 017-7z"
+            />
             <circle cx="12" cy="9" r="2.5" fill="currentColor" />
           </svg>
         )}
       </button>
+
+      {/* Geo-error banner — only shown after a failed locate() */}
+      {geoError && (
+        <div
+          role="alert"
+          className="absolute top-14 right-3 z-[1000] max-w-xs bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2 shadow"
+        >
+          {geoError}
+        </div>
+      )}
 
       <MapContainer
         key={mapKey}

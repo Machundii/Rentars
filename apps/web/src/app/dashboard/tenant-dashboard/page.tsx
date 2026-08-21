@@ -1,13 +1,33 @@
 'use client';
 
-import { useDashboard } from '@/hooks/useDashboard';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useDashboard, type BookingStatus, type BookingSort, type BookingOrder } from '@/hooks/useDashboard';
 import BookingHistory from '@/components/dashboard/BookingHistory';
 import Analytics from '@/components/dashboard/Analytics';
 import NotificationSystem from '@/components/dashboard/NotificationSystem';
 import WalletTransaction from './components/WalletTransaction';
+import BookingPreferences from './components/BookingPreferences';
+import ExportBookingsButton from './components/ExportBookingsButton';
 
 export default function TenantDashboard() {
-  const { bookings, isLoading, error } = useDashboard();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const statusFilter = (searchParams.get('status') as BookingStatus) ?? null;
+  const sort = (searchParams.get('sort') as BookingSort) ?? 'created';
+  const order = (searchParams.get('order') as BookingOrder) ?? 'desc';
+
+  const { bookings, isLoading, error } = useDashboard(20, statusFilter, sort, order);
+
+  function updateParam(key: string, value: string | null) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value) {
+      params.set(key, value);
+    } else {
+      params.delete(key);
+    }
+    router.replace(`?${params.toString()}`);
+  }
 
   const mockTransactions = [
     {
@@ -46,7 +66,10 @@ export default function TenantDashboard() {
             <h1 className="text-3xl font-bold text-gray-900">Tenant Dashboard</h1>
             <p className="text-gray-600 mt-1">Manage your bookings and transactions</p>
           </div>
-          <NotificationSystem />
+          <div className="flex items-center gap-3">
+            <ExportBookingsButton bookings={formattedBookings} />
+            <NotificationSystem />
+          </div>
         </div>
 
         {/* Error State */}
@@ -66,10 +89,18 @@ export default function TenantDashboard() {
         {/* Content */}
         {!isLoading && !error && (
           <>
-            {/* Booking History */}
+            {/* Booking History with filters */}
             <div>
               <h2 className="text-2xl font-bold text-gray-900 mb-4">Your Bookings</h2>
-              <BookingHistory bookings={formattedBookings} />
+              <BookingHistory
+                bookings={formattedBookings}
+                statusFilter={statusFilter}
+                sort={sort}
+                order={order}
+                onStatusChange={(s) => updateParam('status', s)}
+                onSortChange={(s) => updateParam('sort', s)}
+                onOrderChange={(o) => updateParam('order', o)}
+              />
             </div>
 
             {/* Analytics and Transactions */}
@@ -77,6 +108,9 @@ export default function TenantDashboard() {
               <Analytics />
               <WalletTransaction transactions={mockTransactions} />
             </div>
+
+            {/* Booking Preferences */}
+            <BookingPreferences bookings={formattedBookings} />
           </>
         )}
       </div>

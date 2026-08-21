@@ -280,22 +280,71 @@ The backend integrates with two Soroban smart contracts:
      │               │                   │◀─────────────│
 ```
 
+## Local development seed data
+
+A seed script populates the local database with a realistic dataset (users, properties,
+availability, bookings, reviews, wishlists, notifications). It is **idempotent** — safe
+to re-run at any time without creating duplicates.
+
+```bash
+# Start the local Supabase stack first
+supabase start
+# or
+docker-compose up -d
+
+# Then seed the database
+bun run db:seed
+```
+
+Seeded credentials:
+
+| Role     | Email                            | Password            |
+|----------|----------------------------------|---------------------|
+| Host     | seed-host@rentars-dev.local      | SeedHost@Dev2024!   |
+| Tenant A | seed-tenant-a@rentars-dev.local  | SeedTenantA@Dev2024!|
+| Tenant B | seed-tenant-b@rentars-dev.local  | SeedTenantB@Dev2024!|
+
 ## Testing
 
 ### Unit Tests
 
 ```bash
-yarn test:unit
+bun run test:unit
 ```
+
+### RLS (Row Level Security) Tests
+
+These tests connect to a running local Supabase stack as different users and verify
+that cross-user data access is blocked by RLS policies.
+
+```bash
+# Start local Supabase first
+supabase start
+
+# Run RLS tests
+bun run test:rls
+```
+
+### Migration filename validation
+
+Validates that all migration files have unique, monotonically increasing numeric prefixes.
+Run this before committing a new migration:
+
+```bash
+bun run validate:migrations
+```
+
+See `database/MIGRATIONS_NAMING.md` for the naming convention and documentation of
+existing duplicate prefixes.
 
 ### Integration Tests
 
 ```bash
 # Start test environment
-docker-compose -f docker-compose.yml up -d
+docker-compose up -d
 
 # Run integration tests
-yarn test:integration
+bun run test:integration
 ```
 
 ### Docker Tests

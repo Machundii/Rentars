@@ -14,6 +14,7 @@ tests/cli/
 ├── test-property-listing.sh    ← PropertyListing contract tests
 ├── test-booking.sh             ← Booking contract tests
 ├── test-review.sh              ← Review contract tests
+├── test-booking-lifecycle.sh   ← End-to-end full booking lifecycle test
 └── utils/
     ├── network-config.sh       ← Network URLs, identity names, WASM paths
     └── test-helpers.sh         ← assert_success / assert_failure / print_summary
@@ -34,6 +35,21 @@ A hidden `.test-state.env` file is written by `setup.sh` and read by every test 
 | `bash` | ≥ 4 | pre-installed on Linux/macOS |
 
 > **Windows users:** run these scripts inside WSL2 or Git Bash.
+
+### Funded testnet accounts
+
+`setup.sh` creates and funds four identities via Friendbot:
+
+| Identity | Role |
+|---|---|
+| `rentars-admin` | Contract admin, confirms/completes bookings |
+| `rentars-owner` | Property listing owner |
+| `rentars-tenant` | Booking tenant |
+| `rentars-reviewer` | Review submitter |
+
+The lifecycle test (`test-booking-lifecycle.sh`) uses all four identities.
+If any account runs out of XLM after repeated test runs, re-fund with
+`./setup.sh --skip-build` (skips the slow cargo build but re-funds accounts).
 
 ---
 
@@ -172,6 +188,25 @@ export STELLAR_NETWORK="futurenet"
 | 12 | get_review — not found | `get_review` |
 | 13 | review_count consistency | `review_count` |
 | 14 | Empty comment accepted | `submit_review` |
+
+### `test-booking-lifecycle.sh` — Full end-to-end lifecycle
+
+Exercises the complete happy-path booking flow across all three contracts in a
+single script, asserting contract state at every step.
+
+| Step | Description | Contracts exercised |
+|------|-------------|---------------------|
+| 1 | Create property listing | `PropertyListing` |
+| 1a–c | Assert listing Active, title, and price | `PropertyListing` |
+| 2 | Create booking for that listing | `Booking` |
+| 2a–e | Assert Pending status, property ref, price, index, and blocked dates | `Booking` |
+| 3 | Admin confirms booking (Pending → Confirmed) | `Booking` |
+| 3a–b | Assert Confirmed status | `Booking` |
+| 4 | Admin completes / releases escrow (Confirmed → Completed) | `Booking` |
+| 4a–b | Assert Completed status | `Booking` |
+| 5 | Reviewer submits 5-star review for owner | `Review` |
+| 5a–c | Assert review stored, indexed, and reputation = 500 | `Review` |
+| Final | Assert listing still Active; booking still Completed | All |
 
 ---
 

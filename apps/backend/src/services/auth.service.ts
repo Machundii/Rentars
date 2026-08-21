@@ -4,11 +4,22 @@
  * Controllers should call these functions instead of touching Supabase directly.
  */
 
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { Keypair, TransactionBuilder, Networks, BASE_FEE } from '@stellar/stellar-sdk';
 import { supabase } from '@/config/supabase.js';
+import { env } from '@/config/env.js';
 import { AuthError, AuthErrorCode } from '@/types/errors.js';
+import { emailService } from './email.service.js';
+import { issueRefreshToken } from './refreshToken.service.js';
+import { securityLogger } from './logging.service.js';
 import type { ServiceResponse } from './index.js';
+
+const VERIFICATION_TOKEN_EXPIRES_MINUTES = 24 * 60; // 24 hours
+
+function hashToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -16,6 +27,7 @@ export interface AuthUser {
   id: string;
   email: string | undefined;
   created_at: string | undefined;
+  role?: string;
 }
 
 export interface RegisterResult {
@@ -24,6 +36,7 @@ export interface RegisterResult {
 
 export interface LoginResult {
   token: string;
+  refreshToken: string;
   user: AuthUser;
 }
 
@@ -70,6 +83,20 @@ export async function registerUser(
     );
   }
 
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + VERIFICATION_TOKEN_EXPIRES_MINUTES * 60 * 1000);
+
+  await supabase.from('users').upsert({
+    id: data.user.id,
+    email: data.user.email,
+    email_verified: false,
+    email_verification_token: tokenHash,
+    email_verification_expires_at: expiresAt.toISOString(),
+  });
+
+  await emailService.sendVerificationEmail({ to: data.user.email!, token: rawToken });
+
   const user: AuthUser = {
     id: data.user.id,
     email: data.user.email,
@@ -100,26 +127,44 @@ export async function loginUser(
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
+    await securityLogger.logAuthEvent('login_failure', undefined, { email });
     throw new AuthError(AuthErrorCode.INVALID_CREDENTIALS, error.message);
   }
 
   if (!data.user) {
+    await securityLogger.logAuthEvent('login_failure', undefined, { email });
     throw new AuthError(AuthErrorCode.USER_NOT_FOUND, 'Login failed: no user returned');
   }
 
+  // Fetch role from users table (default to 'tenant' if not set)
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', data.user.id)
+    .single();
+
+  const role: string = (userRow as { role?: string } | null)?.role ?? 'tenant';
+
+  // Short-lived access token (15 minutes)
   const token = jwt.sign(
-    { userId: data.user.id },
-    process.env.JWT_SECRET || 'secret',
-    { expiresIn: '7d' },
+    { userId: data.user.id, role },
+    env.JWT_SECRET,
+    { expiresIn: '15m' },
   );
+
+  // Long-lived refresh token stored in Redis (7 days)
+  const refreshToken = await issueRefreshToken({ userId: data.user.id, role });
+
+  await securityLogger.logAuthEvent('login_success', data.user.id, { email });
 
   const user: AuthUser = {
     id: data.user.id,
     email: data.user.email,
     created_at: data.user.created_at,
+    role,
   };
 
-  return { success: true, data: { token, user } };
+  return { success: true, data: { token, refreshToken, user } };
 }
 
 /**
@@ -241,7 +286,7 @@ export async function verifyWalletChallenge(
   // Find or create user with this Stellar address
   let { data: userData, error: userError } = await supabase
     .from('users')
-    .select('id, email, created_at')
+    .select('id, email, created_at, role')
     .eq('stellar_address', stellarAddress)
     .single();
 
@@ -264,13 +309,15 @@ export async function verifyWalletChallenge(
       );
     }
 
-    userData = newUser as { id: string; email: string | null; created_at: string };
+    userData = newUser as { id: string; email: string | null; created_at: string; role: string | null };
   }
+
+  const role = userData.role || 'tenant';
 
   // Issue JWT
   const token = jwt.sign(
-    { userId: userData.id },
-    process.env.JWT_SECRET || 'secret',
+    { userId: userData.id, role },
+    env.JWT_SECRET,
     { expiresIn: '7d' },
   );
 
@@ -278,10 +325,112 @@ export async function verifyWalletChallenge(
     id: userData.id,
     email: userData.email || undefined,
     created_at: userData.created_at,
+    role,
   };
 
   return {
     success: true,
     data: { token, user },
   };
+}
+
+// ─── Password reset ───────────────────────────────────────────────────────────
+
+const RESET_TOKEN_EXPIRES_MINUTES = 60;
+
+function hashToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+/**
+ * Request a password reset for the given email.
+ * Always returns success to prevent user enumeration — the email is only
+ * sent when an account with that address actually exists.
+ */
+export async function requestPasswordReset(
+  email: string,
+): Promise<ServiceResponse<void>> {
+  if (!email) {
+    throw new AuthError(AuthErrorCode.INVALID_CREDENTIALS, 'Email is required');
+  }
+
+  const { data: userData } = await supabase.auth.admin.listUsers();
+  const user = (userData?.users ?? []).find((u) => u.email === email.toLowerCase().trim());
+
+  if (user) {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRES_MINUTES * 60 * 1000);
+
+    await supabase.from('password_reset_tokens').insert({
+      user_id: user.id,
+      token_hash: tokenHash,
+      expires_at: expiresAt.toISOString(),
+    });
+
+    await emailService.sendPasswordResetEmail({ to: email, token: rawToken });
+  }
+
+  return { success: true };
+}
+
+/**
+ * Confirm a password reset using the raw token received by email.
+ * Validates the token, updates the password, consumes the token, and
+ * invalidates existing sessions by updating `sessions_invalidated_at`.
+ */
+export async function confirmPasswordReset(
+  rawToken: string,
+  newPassword: string,
+): Promise<ServiceResponse<void>> {
+  if (!rawToken || !newPassword) {
+    throw new AuthError(AuthErrorCode.INVALID_CREDENTIALS, 'Token and new password are required');
+  }
+
+  const tokenHash = hashToken(rawToken);
+
+  const { data: tokenRow, error: fetchError } = await supabase
+    .from('password_reset_tokens')
+    .select('*')
+    .eq('token_hash', tokenHash)
+    .single();
+
+  if (fetchError || !tokenRow) {
+    throw new AuthError(AuthErrorCode.INVALID_TOKEN, 'Invalid or unknown reset token');
+  }
+
+  const row = tokenRow as {
+    id: string;
+    user_id: string;
+    expires_at: string;
+    consumed_at: string | null;
+  };
+
+  if (row.consumed_at) {
+    throw new AuthError(AuthErrorCode.INVALID_TOKEN, 'Reset token has already been used');
+  }
+
+  if (new Date(row.expires_at) < new Date()) {
+    throw new AuthError(AuthErrorCode.TOKEN_EXPIRED, 'Reset token has expired');
+  }
+
+  const { error: updateError } = await supabase.auth.admin.updateUserById(row.user_id, {
+    password: newPassword,
+  });
+
+  if (updateError) {
+    throw new AuthError(AuthErrorCode.INVALID_CREDENTIALS, updateError.message);
+  }
+
+  await supabase
+    .from('password_reset_tokens')
+    .update({ consumed_at: new Date().toISOString() })
+    .eq('id', row.id);
+
+  await supabase
+    .from('users')
+    .update({ sessions_invalidated_at: new Date().toISOString() })
+    .eq('id', row.user_id);
+
+  return { success: true };
 }

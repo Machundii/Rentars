@@ -17,6 +17,7 @@ interface UploadSlot {
   status: UploadStatus;
   progress: number;
   error?: string;
+  retryCount?: number;
 }
 
 interface ImageUploaderProps {
@@ -24,11 +25,13 @@ interface ImageUploaderProps {
   initialImages?: ImageItem[];
   onChange?: (images: ImageItem[]) => void;
   maxImages?: number;
+  onUploadStatusChange?: (hasUploadsInProgress: boolean) => void;
 }
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_DIMENSION = 1920;
+const MAX_RETRY_ATTEMPTS = 3;
 
 /**
  * Compresses an image file client-side using Canvas before upload.
@@ -127,6 +130,7 @@ export default function ImageUploader({
   initialImages = [],
   onChange,
   maxImages = 10,
+  onUploadStatusChange,
 }: ImageUploaderProps) {
   const [slots, setSlots] = useState<UploadSlot[]>(
     initialImages.map((img) => ({ image: img, status: 'idle', progress: 0 })),
@@ -141,11 +145,71 @@ export default function ImageUploader({
   const notifyParent = (updated: UploadSlot[]) => {
     setSlots(updated);
     onChange?.(updated.map((s) => s.image));
+    const hasUploadsInProgress = updated.some((s) => s.status === 'uploading');
+    onUploadStatusChange?.(hasUploadsInProgress);
   };
 
   const updateSlot = (index: number, patch: Partial<UploadSlot>) => {
     setSlots((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
   };
+
+  const retryUpload = useCallback(
+    async (index: number) => {
+      const slot = slots[index];
+      if (!slot.image.file || !propertyId) return;
+
+      const token = localStorage.getItem('token') ?? '';
+      const retryCount = (slot.retryCount ?? 0) + 1;
+
+      if (retryCount > MAX_RETRY_ATTEMPTS) {
+        updateSlot(index, {
+          status: 'error',
+          error: `Failed after ${MAX_RETRY_ATTEMPTS} attempts`,
+          progress: 0,
+        });
+        return;
+      }
+
+      updateSlot(index, {
+        status: 'uploading',
+        progress: 0,
+        error: undefined,
+        retryCount,
+      });
+
+      try {
+        const compressed = await compressImage(slot.image.file);
+        const res = await uploadWithProgress(
+          `${API_URL}/api/v1/properties/${propertyId}/images`,
+          token,
+          compressed,
+          (pct) => updateSlot(index, { progress: pct }),
+        );
+
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { error?: string }).error ?? `Upload failed (${res.status})`);
+        }
+
+        const img = await res.json();
+        updateSlot(index, {
+          image: { id: img.id, url: img.url, isPrimary: img.is_primary },
+          status: 'idle',
+          progress: 100,
+          error: undefined,
+          retryCount: 0,
+        });
+      } catch (err) {
+        updateSlot(index, {
+          status: 'error',
+          error: err instanceof Error ? err.message : 'Upload failed',
+          progress: 0,
+          retryCount,
+        });
+      }
+    },
+    [slots, propertyId, API_URL],
+  );
 
   const validateFile = (file: File): string | null => {
     if (!ALLOWED_TYPES.includes(file.type)) return 'Only JPEG, PNG, and WebP are allowed';
@@ -398,17 +462,32 @@ export default function ImageUploader({
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-900/60 p-2">
                   <AlertCircle size={20} className="text-white mb-1" aria-hidden="true" />
                   <p className="text-white text-xs text-center leading-tight">{slot.error}</p>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeImage(idx);
-                    }}
-                    className="mt-2 text-xs text-white underline"
-                    aria-label="Dismiss error and remove image"
-                  >
-                    Dismiss
-                  </button>
+                  <div className="mt-2 flex gap-1">
+                    {propertyId && (slot.retryCount ?? 0) < MAX_RETRY_ATTEMPTS && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          retryUpload(idx);
+                        }}
+                        className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-2 py-1 rounded transition"
+                        aria-label="Retry uploading image"
+                      >
+                        Retry
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeImage(idx);
+                      }}
+                      className="text-xs text-white underline hover:no-underline"
+                      aria-label="Dismiss error and remove image"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
               )}
 

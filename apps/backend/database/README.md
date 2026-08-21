@@ -268,8 +268,18 @@ Run manually as needed:
 psql -U postgres -d rentars -f apps/backend/database/migrations/00009_create_reviews_table.sql
 psql -U postgres -d rentars -f apps/backend/database/migrations/00010_create_wishlists_table.sql
 psql -U postgres -d rentars -f apps/backend/database/migrations/00011_create_notifications_table.sql
-psql -U postgres -d rentars -f database/migrations/001_create_sync_tables.sql
+psql -U postgres -d rentars -f apps/backend/database/migrations/00020_add_missing_indexes.sql
+psql -U postgres -d rentars -f apps/backend/database/migrations/00021_add_rls_wishlists_notifications.sql
 ```
+
+### Seed local data
+
+```bash
+cd apps/backend && bun run db:seed
+```
+
+Populates a realistic local dataset (users, properties, availability, bookings, reviews, wishlists,
+notifications) using stable UUIDs — idempotent and safe to re-run.
 
 ### Rollback strategy
 
