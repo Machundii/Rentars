@@ -121,6 +121,7 @@ export async function searchPropertiesByQuery(
     .select('*')
     // Uses generated column search_vector + GIN index
     .textSearch('search_vector', tsQuery, { config: 'english' })
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -170,7 +171,8 @@ export async function computeZeroResultSuggestions(
     let q = supabase
       .from('properties')
       .select('id', { count: 'exact', head: true })
-      .eq('status', 'available');
+      .eq('status', 'available')
+      .is('deleted_at', null);
 
     if (merged.query) {
       const tokens = merged.query
@@ -300,7 +302,8 @@ export async function getPriceHistogram(
   let rangeQuery = supabase
     .from('properties')
     .select('price_per_night')
-    .eq('status', 'available');
+    .eq('status', 'available')
+    .is('deleted_at', null);
 
   rangeQuery = applyNonPriceFilters(rangeQuery, filters);
 

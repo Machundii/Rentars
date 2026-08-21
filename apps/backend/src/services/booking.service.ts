@@ -279,7 +279,7 @@ export class BookingService {
     // 1. Fetch property + owner (include capacity and stay-length limits)
     const { data: property, error: propertyError } = await supabase
       .from('properties')
-      .select('id, owner_id, on_chain_id, max_guests, min_nights, max_nights, check_in_time, check_out_time')
+      .select('id, owner_id, on_chain_id, max_guests, min_nights, max_nights, check_in_time, check_out_time, deleted_at')
       .eq('id', property_id)
       .single();
 
@@ -296,7 +296,13 @@ export class BookingService {
       max_nights?: number | null;
       check_in_time?: string;
       check_out_time?: string;
+      deleted_at?: string | null;
     };
+
+    // Reject bookings against soft-deleted (removed) listings
+    if (prop.deleted_at) {
+      return { success: false, error: 'This property is no longer available for booking' };
+    }
 
     // Capacity check
     if (prop.max_guests !== undefined && prop.max_guests !== null && guest_count > prop.max_guests) {
