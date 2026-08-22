@@ -154,6 +154,33 @@ describe('addPropertyImage', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe('DB constraint violation');
   });
+
+  it('returns error when property has reached maximum image limit', async () => {
+    const mockSupabase = supabase as jest.Mocked<typeof supabase>;
+
+    mockSupabase.from
+      .mockReturnValueOnce({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({
+              data: { id: PROPERTY_ID, owner_id: OWNER_ID },
+              error: null,
+            }),
+          }),
+        }),
+      } as any)
+      .mockReturnValueOnce({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({ count: 15, error: null }),
+        }),
+      } as any);
+
+    const result = await addPropertyImage(PROPERTY_ID, OWNER_ID, mockFile);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Maximum image limit reached/);
+    expect(mockUploadImage).not.toHaveBeenCalled();
+  });
 });
 
 describe('getPropertyImages', () => {

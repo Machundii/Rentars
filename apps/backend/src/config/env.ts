@@ -82,6 +82,25 @@ const envSchema = z.object({
   // Upload routes (multipart/form-data) are governed by multer limits, not this value.
   JSON_BODY_LIMIT: z.string().default('1mb'),
 
+  // ── Property image upload limits ──────────────────────────────────────────
+  MAX_IMAGES_PER_PROPERTY: z
+    .string()
+    .default('15')
+    .transform((v) => {
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 1) throw new Error('MAX_IMAGES_PER_PROPERTY must be a positive integer');
+      return n;
+    }),
+
+  MAX_IMAGE_SIZE_BYTES: z
+    .string()
+    .default('5242880') // 5 MB
+    .transform((v) => {
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 1) throw new Error('MAX_IMAGE_SIZE_BYTES must be a positive integer');
+      return n;
+    }),
+
   // ── Observability ─────────────────────────────────────────────────────────
   // Minimum log level: debug | info | warn | error  (default: info)
   LOG_LEVEL: z

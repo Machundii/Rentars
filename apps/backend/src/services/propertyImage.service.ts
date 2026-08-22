@@ -1,5 +1,6 @@
 import { supabase } from '@/config/supabase.js';
 import { uploadImage, deleteImage as deleteStorageImage } from '@/config/supabase-storage.js';
+import { env } from '@/config/env.js';
 import * as cache from './cache.service.js';
 import type { ServiceResponse } from './index.js';
 
@@ -37,16 +38,26 @@ export async function addPropertyImage(
     return { success: false, error: 'Forbidden: you do not own this property' };
   }
 
-  // Upload to storage
-  const url = await uploadImage(propertyId, file);
-
-  // Get current image count for ordering
-  const { count } = await supabase
+  // Count existing images BEFORE uploading to storage
+  const { count, error: countError } = await supabase
     .from('property_images')
     .select('id', { count: 'exact', head: true })
     .eq('property_id', propertyId);
 
-  const displayOrder = (count ?? 0) + 1;
+  if (countError) return { success: false, error: countError.message };
+
+  const currentCount = count ?? 0;
+  if (currentCount >= env.MAX_IMAGES_PER_PROPERTY) {
+    return {
+      success: false,
+      error: `Maximum image limit reached for property (${currentCount}/${env.MAX_IMAGES_PER_PROPERTY})`,
+    };
+  }
+
+  // Upload to storage
+  const url = await uploadImage(propertyId, file);
+
+  const displayOrder = currentCount + 1;
   const isPrimary = displayOrder === 1;
 
   const { data, error } = await supabase

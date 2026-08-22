@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { env } from '@/config/env.js';
 import { isDomainError, ValidationError } from '@/types/errors.js';
 import type { DomainError } from '@/types/errors.js';
 import { structuredLog, type RequestWithId } from './logging.middleware.js';
@@ -118,6 +119,23 @@ export function errorMiddleware(
   _next: NextFunction,
 ): void {
   const requestId = (req as RequestWithId).requestId;
+
+  // ── Multer / Image Upload errors ─────────────────────────────────────────
+  if (err.name === 'MulterError') {
+    logAndCount(req, 400, 'FILE_UPLOAD_ERROR', err);
+    if ((err as { code?: string }).code === 'LIMIT_FILE_SIZE') {
+      res.status(400).json({ error: `File size exceeds maximum allowed size of ${env.MAX_IMAGE_SIZE_BYTES} bytes` });
+      return;
+    }
+    res.status(400).json({ error: err.message });
+    return;
+  }
+
+  if (err.message === 'Only JPEG, PNG, and WebP images are allowed') {
+    logAndCount(req, 400, 'INVALID_FILE_TYPE', err);
+    res.status(400).json({ error: err.message });
+    return;
+  }
 
   // ── 413 Payload Too Large ─────────────────────────────────────────────────
   const bodyParserErr = err as BodyParserError;
