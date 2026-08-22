@@ -129,7 +129,10 @@ describe('Property Image Upload Enforcement', () => {
     const validBuffer = Buffer.from('fake image content');
     const mockSupabase = supabase as any;
 
-    vi.mocked(storage.uploadImage).mockResolvedValue('https://example.com/img1.jpg');
+    vi.mocked(storage.uploadImage).mockResolvedValue({
+      url: 'https://example.com/img1.jpg',
+      thumbnailUrl: 'https://example.com/thumb_img1.jpg',
+    });
 
     mockSupabase.from
       .mockReturnValueOnce({
@@ -155,6 +158,7 @@ describe('Property Image Upload Enforcement', () => {
                 id: 'img-3',
                 property_id: 'prop-1',
                 url: 'https://example.com/img1.jpg',
+                thumbnail_url: 'https://example.com/thumb_img1.jpg',
                 is_primary: false,
                 display_order: 3,
               },
@@ -171,6 +175,7 @@ describe('Property Image Upload Enforcement', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.url).toBe('https://example.com/img1.jpg');
+    expect(res.body.thumbnail_url).toBe('https://example.com/thumb_img1.jpg');
     expect(res.body.display_order).toBe(3);
     expect(storage.uploadImage).toHaveBeenCalled();
   });

@@ -8,6 +8,7 @@ export interface PropertyImage {
   id: string;
   property_id: string;
   url: string;
+  thumbnail_url?: string | null;
   is_primary: boolean;
   display_order: number;
   created_at?: string;
@@ -54,15 +55,21 @@ export async function addPropertyImage(
     };
   }
 
-  // Upload to storage
-  const url = await uploadImage(propertyId, file);
+  // Upload main image and thumbnail variant to storage
+  const { url, thumbnailUrl } = await uploadImage(propertyId, file);
 
   const displayOrder = currentCount + 1;
   const isPrimary = displayOrder === 1;
 
   const { data, error } = await supabase
     .from('property_images')
-    .insert({ property_id: propertyId, url, is_primary: isPrimary, display_order: displayOrder })
+    .insert({
+      property_id: propertyId,
+      url,
+      thumbnail_url: thumbnailUrl,
+      is_primary: isPrimary,
+      display_order: displayOrder,
+    })
     .select()
     .single();
 
@@ -115,15 +122,15 @@ export async function removePropertyImage(
 
   const { data: image, error: imgError } = await supabase
     .from('property_images')
-    .select('url, is_primary')
+    .select('url, thumbnail_url, is_primary')
     .eq('id', imageId)
     .eq('property_id', propertyId)
     .single();
 
   if (imgError || !image) return { success: false, error: 'Image not found' };
 
-  // Remove from storage
-  await deleteStorageImage((image as PropertyImage).url);
+  // Remove from storage (both main and thumbnail)
+  await deleteStorageImage((image as PropertyImage).url, (image as PropertyImage).thumbnail_url);
 
   const { error } = await supabase.from('property_images').delete().eq('id', imageId);
   if (error) return { success: false, error: error.message };

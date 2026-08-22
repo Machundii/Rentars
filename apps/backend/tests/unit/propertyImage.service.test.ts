@@ -23,6 +23,7 @@ const PROPERTY_ID = 'prop-uuid-1';
 const OWNER_ID = 'owner-uuid-1';
 const IMAGE_ID = 'img-uuid-1';
 const IMAGE_URL = 'https://cdn.example.com/storage/v1/object/public/property-images/prop-uuid-1/ts-photo.webp';
+const THUMBNAIL_URL = 'https://cdn.example.com/storage/v1/object/public/property-images/prop-uuid-1/thumb_ts-photo.webp';
 
 const mockFile = {
   buffer: Buffer.from('fake'),
@@ -75,7 +76,7 @@ describe('addPropertyImage', () => {
 
   it('uploads image and inserts record on success', async () => {
     const mockSupabase = supabase as jest.Mocked<typeof supabase>;
-    mockUploadImage.mockResolvedValue(IMAGE_URL);
+    mockUploadImage.mockResolvedValue({ url: IMAGE_URL, thumbnailUrl: THUMBNAIL_URL });
 
     mockSupabase.from
       .mockReturnValueOnce({
@@ -101,6 +102,7 @@ describe('addPropertyImage', () => {
                 id: IMAGE_ID,
                 property_id: PROPERTY_ID,
                 url: IMAGE_URL,
+                thumbnail_url: THUMBNAIL_URL,
                 is_primary: true,
                 display_order: 1,
               },
@@ -114,13 +116,14 @@ describe('addPropertyImage', () => {
 
     expect(result.success).toBe(true);
     expect(result.data?.url).toBe(IMAGE_URL);
+    expect(result.data?.thumbnail_url).toBe(THUMBNAIL_URL);
     expect(result.data?.is_primary).toBe(true);
     expect(mockUploadImage).toHaveBeenCalledWith(PROPERTY_ID, mockFile);
   });
 
   it('returns error when db insert fails', async () => {
     const mockSupabase = supabase as jest.Mocked<typeof supabase>;
-    mockUploadImage.mockResolvedValue(IMAGE_URL);
+    mockUploadImage.mockResolvedValue({ url: IMAGE_URL, thumbnailUrl: THUMBNAIL_URL });
 
     mockSupabase.from
       .mockReturnValueOnce({
