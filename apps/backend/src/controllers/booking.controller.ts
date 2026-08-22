@@ -3,6 +3,7 @@ import { BookingService } from '@/services/booking.service.js';
 import { getPropertyById } from '@/services/property.service.js';
 import { generateIcs } from '@/utils/ics.js';
 import type { AuthRequest } from '@/middleware/auth.middleware.js';
+import type { BookingModification } from '@/services/booking.service.js';
 
 const bookingService = new BookingService();
 
@@ -34,9 +35,105 @@ export async function listUserBookings(req: AuthRequest, res: Response): Promise
     res.status(400).json({ error: result.error });
     return;
   }
+
   res.json(result.data);
 }
 
+/**
+ * POST /api/v1/bookings/:id/modifications
+ *
+ * Request a date change for a booking.
+ * Only the booking tenant may request a modification.
+ * Body: { requested_start: string, requested_end: string, reason?: string }
+ */
+export async function requestModification(req: Request, res: Response): Promise<void> {
+  const authUser = (req as Request & { user?: { id: string } }).user;
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const { requested_start, requested_end, reason } = req.body as {
+    requested_start: string;
+    requested_end: string;
+    reason?: string;
+  };
+
+  const result = await bookingService.requestModification(
+    req.params.id,
+    authUser.id,
+    requested_start,
+    requested_end,
+    reason,
+  );
+
+  if (!result.success) {
+    const statusCode =
+      result.error?.startsWith('Forbidden') ? 403
+      : result.error === 'Booking not found'  ? 404
+      : result.conflict ? 409
+      : 400;
+    res.status(statusCode).json({ error: result.error });
+    return;
+  }
+
+  res.status(201).json(result.data);
+}
+
+/**
+ * POST /api/v1/bookings/:id/modifications/:modId/accept
+ *
+ * Accept a pending date-change request.
+ * Only the host (property owner) may accept.
+ */
+export async function acceptModification(req: Request, res: Response): Promise<void> {
+  const authUser = (req as Request & { user?: { id: string } }).user;
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const result = await bookingService.acceptModification(req.params.id, authUser.id, req.params.modId);
+
+  if (!result.success) {
+    const statusCode =
+      result.error?.startsWith('Forbidden') ? 403
+      : result.error === 'Booking not found' || result.error === 'Modification request not found' ? 404
+      : result.conflict ? 409
+      : 400;
+    res.status(statusCode).json({ error: result.error });
+    return;
+  }
+
+  res.json(result.data);
+}
+
+/**
+ * POST /api/v1/bookings/:id/modifications/:modId/decline
+ *
+ * Decline a pending date-change request.
+ * Only the host (property owner) may decline.
+ */
+export async function declineModification(req: Request, res: Response): Promise<void> {
+  const authUser = (req as Request & { user?: { id: string } }).user;
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const result = await bookingService.declineModification(req.params.id, authUser.id, req.params.modId);
+
+  if (!result.success) {
+    const statusCode =
+      result.error?.startsWith('Forbidden') ? 403
+      : result.error === 'Booking not found' || result.error === 'Modification request not found' ? 404
+      : 400;
+    res.status(statusCode).json({ error: result.error });
+    return;
+  }
+
+  res.json(result.data);
+}
 export async function getBooking(req: Request, res: Response): Promise<void> {
   const result = await bookingService.getBookingById(req.params.id);
 
@@ -367,6 +464,102 @@ export async function resolveDispute(req: Request, res: Response): Promise<void>
 
   if (!result.success) {
     res.status(400).json({ error: result.error });
+    return;
+  }
+
+  res.json(result.data);
+}
+
+/**
+ * POST /api/v1/bookings/:id/modifications
+ *
+ * Request a date change for a booking.
+ * Only the booking tenant may request a modification.
+ * Body: { requested_start: string, requested_end: string, reason?: string }
+ */
+export async function requestModification(req: Request, res: Response): Promise<void> {
+  const authUser = (req as Request & { user?: { id: string } }).user;
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const { requested_start, requested_end, reason } = req.body as {
+    requested_start: string;
+    requested_end: string;
+    reason?: string;
+  };
+
+  const result = await bookingService.requestModification(
+    req.params.id,
+    authUser.id,
+    requested_start,
+    requested_end,
+    reason,
+  );
+
+  if (!result.success) {
+    const statusCode =
+      result.error?.startsWith('Forbidden') ? 403
+      : result.error === 'Booking not found'  ? 404
+      : result.conflict ? 409
+      : 400;
+    res.status(statusCode).json({ error: result.error });
+    return;
+  }
+
+  res.status(201).json(result.data);
+}
+
+/**
+ * POST /api/v1/bookings/:id/modifications/:modId/accept
+ *
+ * Accept a pending date-change request.
+ * Only the host (property owner) may accept.
+ */
+export async function acceptModification(req: Request, res: Response): Promise<void> {
+  const authUser = (req as Request & { user?: { id: string } }).user;
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const result = await bookingService.acceptModification(req.params.id, authUser.id, req.params.modId);
+
+  if (!result.success) {
+    const statusCode =
+      result.error?.startsWith('Forbidden') ? 403
+      : result.error === 'Booking not found' || result.error === 'Modification request not found' ? 404
+      : result.conflict ? 409
+      : 400;
+    res.status(statusCode).json({ error: result.error });
+    return;
+  }
+
+  res.json(result.data);
+}
+
+/**
+ * POST /api/v1/bookings/:id/modifications/:modId/decline
+ *
+ * Decline a pending date-change request.
+ * Only the host (property owner) may decline.
+ */
+export async function declineModification(req: Request, res: Response): Promise<void> {
+  const authUser = (req as Request & { user?: { id: string } }).user;
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const result = await bookingService.declineModification(req.params.id, authUser.id, req.params.modId);
+
+  if (!result.success) {
+    const statusCode =
+      result.error?.startsWith('Forbidden') ? 403
+      : result.error === 'Booking not found' || result.error === 'Modification request not found' ? 404
+      : 400;
+    res.status(statusCode).json({ error: result.error });
     return;
   }
 

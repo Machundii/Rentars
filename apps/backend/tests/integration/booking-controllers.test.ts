@@ -25,7 +25,7 @@ const mockBookingService = {
     success: true,
     data: { id, ...data },
   })),
-  deleteBooking: mock(async (id: string) => ({
+  deleteBooking: mock(async (id: string, userId: string) => ({
     success: true,
     data: { id },
   })),
@@ -36,6 +36,37 @@ const mockBookingService = {
   confirmBooking: mock(async (id: string, userId: string) => ({
     success: true,
     data: { id, status: 'confirmed' },
+  })),
+  requestModification: mock(async (bookingId: string, tenantId: string, requestedStart: string, requestedEnd: string, reason?: string) => ({
+    success: true,
+    data: {
+      id: 'mod-1',
+      booking_id: bookingId,
+      requested_start: requestedStart,
+      requested_end: requestedEnd,
+      original_start: '2026-06-01',
+      original_end: '2026-06-05',
+      status: 'pending',
+      requested_by: tenantId,
+      reason,
+    },
+  })),
+  acceptModification: mock(async (bookingId: string, hostId: string, modificationId: string) => ({
+    success: true,
+    data: { id: bookingId, status: 'Confirmed', check_in: '2026-07-01', check_out: '2026-07-05', total_price: 300 },
+  })),
+  declineModification: mock(async (bookingId: string, hostId: string, modificationId: string) => ({
+    success: true,
+    data: {
+      id: 'mod-1',
+      booking_id: bookingId,
+      requested_start: '2026-07-01',
+      requested_end: '2026-07-05',
+      original_start: '2026-06-01',
+      original_end: '2026-06-05',
+      status: 'declined',
+      requested_by: 'user-1',
+    },
   })),
 };
 
@@ -170,6 +201,58 @@ describe('Booking API Endpoints', () => {
 
       expect(response.status).toBe(404);
       expect(response.body).toHaveProperty('error');
+    });
+  });
+
+  describe('POST /api/bookings/:id/modifications', () => {
+    it('should create a modification request', async () => {
+      const response = await request(app)
+        .post('/api/bookings/booking-1/modifications')
+        .set('Authorization', 'Bearer valid-token')
+        .send({
+          requested_start: '2026-07-01',
+          requested_end: '2026-07-05',
+          reason: 'Need later dates',
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body).toHaveProperty('id', 'mod-1');
+      expect(response.body).toHaveProperty('status', 'pending');
+    });
+
+    it('should return 400 for invalid date range', async () => {
+      const response = await request(app)
+        .post('/api/bookings/booking-1/modifications')
+        .set('Authorization', 'Bearer valid-token')
+        .send({
+          requested_start: '2026-07-05',
+          requested_end: '2026-07-01',
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+    });
+  });
+
+  describe('POST /api/bookings/:id/modifications/:modId/accept', () => {
+    it('should accept a pending modification', async () => {
+      const response = await request(app)
+        .post('/api/bookings/booking-1/modifications/mod-1/accept')
+        .set('Authorization', 'Bearer valid-token');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('check_in', '2026-07-01');
+    });
+  });
+
+  describe('POST /api/bookings/:id/modifications/:modId/decline', () => {
+    it('should decline a pending modification', async () => {
+      const response = await request(app)
+        .post('/api/bookings/booking-1/modifications/mod-1/decline')
+        .set('Authorization', 'Bearer valid-token');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('status', 'declined');
     });
   });
 });
