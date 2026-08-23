@@ -18,6 +18,32 @@ export function getSorobanServer(): rpc.Server {
   });
 }
 
+const RPC_HEALTH_TIMEOUT_MS = 2000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Stellar RPC health check timed out')), ms);
+    }),
+  ]);
+}
+
+/**
+ * Verify Stellar RPC connectivity with a bounded-time getHealth() probe.
+ *
+ * @returns true if the RPC endpoint reports "healthy" within the timeout, false otherwise
+ */
+export async function getRpcHealth(): Promise<boolean> {
+  try {
+    const server = getSorobanServer();
+    const health = await withTimeout(server.getHealth(), RPC_HEALTH_TIMEOUT_MS);
+    return health.status === 'healthy';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Submit a signed Soroban transaction and poll until it is confirmed.
  */
