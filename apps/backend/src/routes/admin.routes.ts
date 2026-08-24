@@ -65,8 +65,6 @@ router.get('/analytics/search/top-queries', getTopQueriesHandler);
 router.get('/analytics/search/zero-results', getZeroResultQueriesHandler);
 router.get('/analytics/search/volume', getSearchVolumeHandler);
 
-export default router;
-
 // ── Featured listings ─────────────────────────────────────────────────────────
 
 /**
