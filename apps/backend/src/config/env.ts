@@ -77,10 +77,52 @@ const envSchema = z.object({
   HCAPTCHA_SECRET_KEY: z.string().optional(),
   HCAPTCHA_ENABLED: z.string().optional(),
 
+  // ── Booking rate limits ────────────────────────────────────────────────────
+  // Per-user rate limit window for booking creation, in milliseconds.
+  // Default: 60 000 ms (1 minute).
+  BOOKING_RATE_LIMIT_WINDOW_MS: z
+    .string()
+    .default('60000')
+    .transform((v) => {
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 1) throw new Error('BOOKING_RATE_LIMIT_WINDOW_MS must be a positive integer');
+      return n;
+    }),
+
+  // Maximum number of booking creation requests per user per window.
+  // Default: 5 requests per window.
+  BOOKING_RATE_LIMIT_MAX: z
+    .string()
+    .default('5')
+    .transform((v) => {
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 1) throw new Error('BOOKING_RATE_LIMIT_MAX must be a positive integer');
+      return n;
+    }),
+
   // ── Body size limits ───────────────────────────────────────────────────────
   // Maximum size for JSON request bodies (Express body-parser format: "1mb", "512kb", etc.)
   // Upload routes (multipart/form-data) are governed by multer limits, not this value.
   JSON_BODY_LIMIT: z.string().default('1mb'),
+
+  // ── Property image upload limits ──────────────────────────────────────────
+  MAX_IMAGES_PER_PROPERTY: z
+    .string()
+    .default('15')
+    .transform((v) => {
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 1) throw new Error('MAX_IMAGES_PER_PROPERTY must be a positive integer');
+      return n;
+    }),
+
+  MAX_IMAGE_SIZE_BYTES: z
+    .string()
+    .default('5242880') // 5 MB
+    .transform((v) => {
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 1) throw new Error('MAX_IMAGE_SIZE_BYTES must be a positive integer');
+      return n;
+    }),
 
   // ── Observability ─────────────────────────────────────────────────────────
   // Minimum log level: debug | info | warn | error  (default: info)

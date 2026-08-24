@@ -1,7 +1,9 @@
 import { syncAllBookings, syncAllProperties, reconcileAllPendingEscrows } from './sync.service.js';
+import { purgeExpired as purgeExpiredIdempotencyKeys } from './idempotency.service.js';
 
 const SYNC_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const RECONCILIATION_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const IDEMPOTENCY_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const MAX_CONCURRENT_RECONCILIATIONS = 5;
 const INITIAL_BACKOFF_MS = 1000; // 1 second
 const MAX_BACKOFF_MS = 30000; // 30 seconds
@@ -72,5 +74,33 @@ export function startSyncScheduler(): void {
     runEscrowReconciliation().catch((err) => console.error('[reconcile] Scheduler error:', err));
   }, RECONCILIATION_INTERVAL_MS);
 
-  console.log(`[sync] Scheduler started — sync interval: ${SYNC_INTERVAL_MS / 1000}s, reconciliation interval: ${RECONCILIATION_INTERVAL_MS / 1000}s`);
+  // Idempotency-key cleanup — runs once per hour, purges records older than 24 h
+  setInterval(() => {
+    runIdempotencyCleanup().catch((err) => console.error('[idempotency] Cleanup error:', err));
+  }, IDEMPOTENCY_CLEANUP_INTERVAL_MS);
+
+  // Run an initial cleanup shortly after startup so stale keys don't linger
+  // across a server restart that happens to be more than 24 h after creation.
+  setTimeout(() => {
+    runIdempotencyCleanup().catch((err) =>
+      console.error('[idempotency] Initial cleanup error:', err),
+    );
+  }, 30_000); // 30 seconds after startup
+
+  console.log(
+    `[sync] Scheduler started — sync interval: ${SYNC_INTERVAL_MS / 1000}s, ` +
+    `reconciliation interval: ${RECONCILIATION_INTERVAL_MS / 1000}s, ` +
+    `idempotency cleanup interval: ${IDEMPOTENCY_CLEANUP_INTERVAL_MS / 1000}s`,
+  );
+}
+
+async function runIdempotencyCleanup(): Promise<void> {
+  const result = await purgeExpiredIdempotencyKeys();
+  if (result.success) {
+    if ((result.data?.deleted ?? 0) > 0) {
+      console.log(`[idempotency] Purged ${result.data?.deleted} expired idempotency key(s)`);
+    }
+  } else {
+    console.error(`[idempotency] Cleanup failed: ${result.error}`);
+  }
 }

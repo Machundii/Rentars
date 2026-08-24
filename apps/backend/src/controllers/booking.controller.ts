@@ -157,6 +157,52 @@ export async function getBookingStatusHistory(req: Request, res: Response): Prom
 }
 
 export async function createBooking(req: Request, res: Response): Promise<void> {
+  const authReq = req as AuthRequest;
+  const userId = authReq.user?.id ?? authReq.userId;
+  const idempotencyKey = req.headers['idempotency-key'];
+
+  // ── Idempotency check ───────────────────────────────────────────────────────
+  if (idempotencyKey) {
+    if (typeof idempotencyKey !== 'string' || idempotencyKey.trim() === '') {
+      res.status(400).json({ error: 'Idempotency-Key header must be a non-empty string' });
+      return;
+    }
+
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const requestHash = hashRequestBody(req.body);
+    const existing = await lookup(userId, idempotencyKey.trim());
+
+    if (!existing.success) {
+      // DB error during lookup — fail safe (let the request proceed without
+      // idempotency protection rather than blocking all bookings)
+      console.error('[idempotency] lookup error:', existing.error);
+    } else if (existing.data !== null) {
+      const record = existing.data;
+
+      if (record.request_hash !== requestHash) {
+        // Same key, different payload → 422 Unprocessable Entity
+        res.status(422).json({
+          error:
+            'Idempotency-Key has already been used with a different request payload. ' +
+            'Use a new key for a different booking request.',
+        });
+        return;
+      }
+
+      // Matching key and hash → replay the original response
+      res
+        .status(record.status_code)
+        .set('Idempotent-Replayed', 'true')
+        .json(record.response_body);
+      return;
+    }
+  }
+
+  // ── Normal booking creation ─────────────────────────────────────────────────
   const result = await bookingService.createBooking(req.body);
 
   if (!result.success) {
@@ -165,15 +211,52 @@ export async function createBooking(req: Request, res: Response): Promise<void> 
     return;
   }
 
-  res.status(201).json(result.data);
+  const responseBody = result.data as Record<string, unknown>;
+  const statusCode = 201;
+
+  // ── Persist idempotency record ──────────────────────────────────────────────
+  if (idempotencyKey && typeof idempotencyKey === 'string' && userId) {
+    const requestHash = hashRequestBody(req.body);
+    const storeResult = await store(userId, idempotencyKey.trim(), requestHash, responseBody, statusCode);
+    if (!storeResult.success) {
+      // Non-fatal: log but still return the booking response
+      console.error('[idempotency] store error:', storeResult.error);
+    }
+  }
+
+  res.status(statusCode).json(responseBody);
 }
 
+/**
+ * POST /api/v1/bookings/:id/cancel
+ *
+ * Cancels a booking as the tenant. The refund amount is computed from the
+ * configured refund policy, the escrow is settled accordingly, and both the
+ * tenant and host are notified. Only the tenant may cancel.
+ */
 export async function cancelBooking(req: Request, res: Response): Promise<void> {
-  const userId = (req as Request & { user?: { id: string } }).user?.id ?? '';
-  const result = await bookingService.cancelBooking(req.params.id, userId);
+  const authUser = (req as Request & { user?: { id: string } }).user;
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const result = await bookingService.cancelBooking(req.params.id, authUser.id);
 
   if (!result.success) {
-    res.status(400).json({ error: result.error });
+    const statusCode =
+      result.statusCode ??
+      (result.error === 'Booking not found'
+        ? 404
+        : result.error?.startsWith('Forbidden')
+          ? 403
+          : result.error === 'Booking is already cancelled' ||
+              result.error === 'Cannot cancel a completed booking' ||
+              result.error === 'Cannot cancel a disputed booking. Resolve the dispute first.'
+            ? 409
+            : 400);
+
+    res.status(statusCode).json({ error: result.error });
     return;
   }
 

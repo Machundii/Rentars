@@ -70,6 +70,9 @@ export interface Property {
   slug?: string;
   created_at?: string;
   updated_at?: string;
+  // Soft-delete tombstone (migration 00032).
+  // NULL = active listing. Non-null = removed by host.
+  deleted_at?: string | null;
 }
 
 /**
@@ -137,7 +140,7 @@ function validateAmenities(amenities: string[]): string | null {
 // ─── Service functions ────────────────────────────────────────────────────────
 
 /**
- * Retrieve all properties.
+ * Retrieve all active (non-soft-deleted) properties.
  */
 export async function getAllProperties(): Promise<ServiceResponse<Property[]>> {
   const cached = await cache.get<Property[]>('properties:all');
@@ -146,6 +149,7 @@ export async function getAllProperties(): Promise<ServiceResponse<Property[]>> {
   const { data, error } = await supabase
     .from('properties')
     .select('*')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -159,18 +163,24 @@ export async function getAllProperties(): Promise<ServiceResponse<Property[]>> {
 /**
  * Retrieve a single property by its Supabase row ID.
  *
+ * Soft-deleted properties (deleted_at IS NOT NULL) are hidden from public reads.
+ * Owners can still retrieve their own soft-deleted listings by passing their
+ * user ID as `requesterId` and setting `includeDeleted: true`.
+ *
  * Responses are cached in Redis with a TTL of {@link TTL_ONE} seconds.
  * Cache is bypassed when the requesting user is the owner of a draft/unpublished
  * listing so they always see their latest edits. Draft properties are never
  * written to the cache.
  *
- * @param id - UUID of the property row.
- * @param requesterId - Optional ID of the authenticated caller. When provided
- *   and the property is a draft owned by this caller, the cache is skipped.
+ * @param id              - UUID of the property row.
+ * @param requesterId     - Optional ID of the authenticated caller.
+ * @param includeDeleted  - When true and the requester is the owner, soft-deleted
+ *                          rows are returned. Defaults to false.
  */
 export async function getPropertyById(
   id: string,
   requesterId?: string,
+  includeDeleted = false,
 ): Promise<ServiceResponse<Property>> {
   if (!id) {
     return { success: false, error: 'Property ID is required' };
@@ -183,6 +193,13 @@ export async function getPropertyById(
     const isDraftOwnedByRequester =
       requesterId && cached.status === 'draft' && cached.owner_id === requesterId;
     if (!isDraftOwnedByRequester) {
+      // If the cached entry is soft-deleted, only surface it to the owner when
+      // includeDeleted is explicitly requested.
+      if (cached.deleted_at) {
+        if (!includeDeleted || cached.owner_id !== requesterId) {
+          return { success: false, error: 'Property not found' };
+        }
+      }
       return { success: true, data: cached };
     }
   }
@@ -198,6 +215,14 @@ export async function getPropertyById(
   }
 
   const property = data as Property;
+
+  // Enforce soft-delete visibility: hide from anyone who isn't the owner
+  // requesting their own deleted history.
+  if (property.deleted_at) {
+    if (!includeDeleted || property.owner_id !== requesterId) {
+      return { success: false, error: 'Property not found' };
+    }
+  }
 
   const { data: imageRows, error: imageError } = await supabase
     .from('property_images')
@@ -215,7 +240,9 @@ export async function getPropertyById(
   }
 
   // Draft properties change frequently and are owner-only — do not cache them.
-  if (property.status !== 'draft') {
+  // Soft-deleted properties should also not be cached on the public key to
+  // prevent stale hidden listings from being served.
+  if (property.status !== 'draft' && !property.deleted_at) {
     await cache.set(cacheKey, property, TTL_ONE);
   }
 
@@ -386,16 +413,25 @@ export async function updateProperty(
 }
 
 /**
- * Delete a property record.
+ * Soft-delete a property record by setting `deleted_at` to the current
+ * timestamp.  The row is preserved in the database so that historical bookings,
+ * reviews, and on-chain references continue to resolve correctly.
  *
- * @param id - UUID of the property row to delete.
+ * The listing is immediately hidden from all public reads and cannot receive
+ * new bookings after this call returns.
+ *
+ * @param id - UUID of the property row to soft-delete.
  */
 export async function deleteProperty(id: string): Promise<ServiceResponse<void>> {
   if (!id) {
     return { success: false, error: 'Property ID is required' };
   }
 
-  const { error } = await supabase.from('properties').delete().eq('id', id);
+  const { error } = await supabase
+    .from('properties')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', id)
+    .is('deleted_at', null); // idempotent: only update if not already deleted
 
   if (error) {
     return { success: false, error: error.message };
@@ -411,7 +447,7 @@ export async function deleteProperty(id: string): Promise<ServiceResponse<void>>
 }
 
 /**
- * Retrieve a single property by its URL slug.
+ * Retrieve a single active (non-soft-deleted) property by its URL slug.
  *
  * The slug uniquely identifies a property (see migration 00024).
  * Results are cached on the same `property:{id}` key as `getPropertyById`
@@ -430,6 +466,7 @@ export async function getPropertyBySlug(
     .from('properties')
     .select('*')
     .eq('slug', slug)
+    .is('deleted_at', null)
     .single();
 
   if (error) {
@@ -460,6 +497,7 @@ export async function getFeaturedProperties(
     .from('properties')
     .select('*')
     .eq('status', 'available')
+    .is('deleted_at', null)
     .not('featured_until', 'is', null)
     .gt('featured_until', now)
     .order('featured_weight', { ascending: false })
@@ -565,7 +603,7 @@ export async function clearFeatured(
 export async function searchProperties(
   filters: PropertySearchFilters,
 ): Promise<ServiceResponse<Property[]>> {
-  let query = supabase.from('properties').select('*');
+  let query = supabase.from('properties').select('*').is('deleted_at', null);
 
   if (filters.city) {
     query = query.ilike('city', `%${filters.city}%`);
@@ -725,6 +763,9 @@ export async function advancedSearch(
     let q = forCount
       ? supabase.from('properties').select('id', { count: 'exact', head: true })
       : supabase.from('properties').select('*');
+
+    // Always exclude soft-deleted listings from public search
+    q = q.is('deleted_at', null);
 
     // Full-text search on title/description
     if (filters.query) {
@@ -936,6 +977,42 @@ function toTsQuery(input: string): string {
   return tokens.map((t) => `${t}:*`).join(' & ');
 }
 
+// ─── Historical / internal reads ─────────────────────────────────────────────
+
+/**
+ * Resolve minimal property data (id, title, slug) for use in historical
+ * contexts such as review displays, booking receipts, and audit trails.
+ *
+ * Unlike `getPropertyById`, this function returns soft-deleted rows so that
+ * historical records remain complete even after a host removes a listing.
+ * It intentionally returns ONLY non-sensitive fields to avoid leaking data
+ * from listings that are no longer publicly visible.
+ *
+ * @param id - UUID of the property row.
+ */
+export async function getPropertyForReview(
+  id: string,
+): Promise<ServiceResponse<Pick<Property, 'id' | 'title' | 'slug' | 'deleted_at'>>> {
+  if (!id) {
+    return { success: false, error: 'Property ID is required' };
+  }
+
+  const { data, error } = await supabase
+    .from('properties')
+    .select('id, title, slug, deleted_at')
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    return { success: false, error: 'Property not found' };
+  }
+
+  return {
+    success: true,
+    data: data as Pick<Property, 'id' | 'title' | 'slug' | 'deleted_at'>,
+  };
+}
+
 // ─── Duplicate ────────────────────────────────────────────────────────────────
 
 export interface DuplicatePropertyOptions {
@@ -979,6 +1056,11 @@ export async function duplicateProperty(
   // Ownership check
   if (src.owner_id !== requesterId) {
     return { success: false, error: 'Forbidden: you do not own this property' };
+  }
+
+  // Cannot duplicate a soft-deleted listing
+  if (src.deleted_at) {
+    return { success: false, error: 'Cannot duplicate a deleted property' };
   }
 
   // Build the clone payload from the allow-list

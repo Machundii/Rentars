@@ -61,6 +61,16 @@ export const updateBookingSchema = z.object({
   escrow_id: z.string().max(255).optional(),
 });
 
+// ─── Cancel booking schema ────────────────────────────────────────────────────
+
+export const cancelBookingSchema = z.object({
+  reason: z
+    .string()
+    .min(1, 'reason must not be empty')
+    .max(2000, 'reason must not exceed 2000 characters')
+    .optional(),
+});
+
 // ─── Dispute schemas ──────────────────────────────────────────────────────────
 
 export const raiseDisputeSchema = z.object({
