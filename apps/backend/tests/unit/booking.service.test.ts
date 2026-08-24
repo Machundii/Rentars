@@ -36,6 +36,22 @@ const loggingMod = await import('../../src/services/logging.service.js');
 const notifMod = await import('../../src/services/notification.service.js');
 (notifMod as any).createNotification = mock(async () => ({ success: true }));
 
+// ── Availability mock ─────────────────────────────────────────────────────────
+
+const availabilityMod = await import('../../src/services/availability.service.js');
+(availabilityMod as any).checkDateRangeAvailability = mock(async () => ({
+  success: true,
+  data: { is_available: true, nights: 3, property_id: mockProperties[0].id, check_in: '2026-08-01', check_out: '2026-08-04', settings: { min_stay_nights: 1 } },
+}));
+
+// ── Pricing mock ──────────────────────────────────────────────────────────────
+
+const pricingMod = await import('../../src/services/pricing.service.js');
+(pricingMod as any).calculateRangePrice = mock(async () => ({
+  success: true,
+  data: { total: 300, breakdown: [] },
+}));
+
 import {
   BookingService,
   type Booking,
@@ -64,6 +80,8 @@ describe('BookingService', () => {
     mockTrustlessWork.createBookingEscrow.mockClear();
     mockTrustlessWork.cancelEscrow.mockClear();
     mockTrustlessWork.releaseEscrow.mockClear();
+    (availabilityMod.checkDateRangeAvailability as ReturnType<typeof mock>).mockClear();
+    (pricingMod.calculateRangePrice as ReturnType<typeof mock>).mockClear();
     blockchain = makeBlockchain();
     bookingService = new BookingService(blockchain);
   });
@@ -782,6 +800,394 @@ describe('BookingService', () => {
       const result = await bookingService.getUserBookings('');
       expect(result.success).toBe(false);
       expect(result.error).toBe('User ID is required');
+    });
+  });
+
+  // ── requestModification ─────────────────────────────────────────────────────
+
+  describe('requestModification', () => {
+    const baseBooking = {
+      id: mockBookings[0].id,
+      property_id: mockProperties[0].id,
+      tenant_id: mockUsers[1].id,
+      check_in: '2026-06-01',
+      check_out: '2026-06-05',
+      status: 'Confirmed',
+      properties: {
+        owner_id: mockUsers[0].id,
+        check_in_time: '15:00',
+        check_out_time: '11:00',
+        min_nights: 1,
+        max_nights: null,
+      },
+    };
+
+    function setupModificationMock(bookingOverrides = {}) {
+      const booking = { ...baseBooking, ...bookingOverrides };
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'bookings') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({ data: booking, error: null })),
+              })),
+            })),
+          };
+        }
+        if (table === 'booking_modifications') {
+          return {
+            insert: mock(() => ({
+              select: mock(() => ({
+                single: mock(async () => ({
+                  data: {
+                    id: 'mod-1',
+                    booking_id: booking.id,
+                    requested_start: '2026-07-01',
+                    requested_end: '2026-07-05',
+                    original_start: booking.check_in,
+                    original_end: booking.check_out,
+                    status: 'pending',
+                    requested_by: mockUsers[1].id,
+                    reason: 'Need later dates',
+                  },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        return {};
+      });
+    }
+
+    it('should create a modification request successfully', async () => {
+      setupModificationMock();
+      const result = await bookingService.requestModification(
+        baseBooking.id,
+        mockUsers[1].id,
+        '2026-07-01',
+        '2026-07-05',
+        'Need later dates',
+      );
+      expect(result.success).toBe(true);
+      expect(result.data?.status).toBe('pending');
+    });
+
+    it('should return error when booking not found', async () => {
+      mockFrom.mockImplementation(() => ({
+        select: mock(() => ({
+          eq: mock(() => ({
+            single: mock(async () => ({ data: null, error: { message: 'Not found' } })),
+          })),
+        })),
+      }));
+
+      const result = await bookingService.requestModification(
+        'nonexistent',
+        mockUsers[1].id,
+        '2026-07-01',
+        '2026-07-05',
+      );
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Booking not found');
+    });
+
+    it('should return error when tenant is not the booking tenant', async () => {
+      setupModificationMock();
+      const result = await bookingService.requestModification(
+        baseBooking.id,
+        mockUsers[0].id,
+        '2026-07-01',
+        '2026-07-05',
+      );
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Forbidden');
+    });
+
+    it('should return error for a cancelled booking', async () => {
+      setupModificationMock({ status: 'Cancelled' });
+      const result = await bookingService.requestModification(
+        baseBooking.id,
+        mockUsers[1].id,
+        '2026-07-01',
+        '2026-07-05',
+      );
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("'Cancelled'");
+    });
+
+    it('should return error when requested dates are unavailable', async () => {
+      (availabilityMod.checkDateRangeAvailability as ReturnType<typeof mock>).mockImplementation(async () => ({
+        success: true,
+        data: { is_available: false, unavailable_reason: 'Property already booked for these dates', property_id: mockProperties[0].id, check_in: '2026-07-01', check_out: '2026-07-05', settings: { min_stay_nights: 1 } },
+      }));
+      setupModificationMock();
+      const result = await bookingService.requestModification(
+        baseBooking.id,
+        mockUsers[1].id,
+        '2026-07-01',
+        '2026-07-05',
+      );
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('not available');
+    });
+  });
+
+  // ── acceptModification ──────────────────────────────────────────────────────
+
+  describe('acceptModification', () => {
+    const baseBooking = {
+      id: mockBookings[0].id,
+      property_id: mockProperties[0].id,
+      tenant_id: mockUsers[1].id,
+      check_in: '2026-06-01',
+      check_out: '2026-06-05',
+      status: 'Confirmed',
+      properties: {
+        owner_id: mockUsers[0].id,
+        base_price_per_night: 100,
+      },
+    };
+
+    function setupAcceptMock() {
+      let callCount = 0;
+      mockFrom.mockImplementation((table: string) => {
+        callCount++;
+        if (table === 'bookings') {
+          if (callCount === 1) {
+            return {
+              select: mock(() => ({
+                eq: mock(() => ({
+                  single: mock(async () => ({ data: baseBooking, error: null })),
+                })),
+              })),
+            };
+          }
+          return {
+            update: mock(() => ({
+              eq: mock(() => ({
+                select: mock(() => ({
+                  single: mock(async () => ({
+                    data: { ...baseBooking, check_in: '2026-07-01', check_out: '2026-07-05', total_price: 300 },
+                    error: null,
+                  })),
+                })),
+              })),
+            })),
+          };
+        }
+        if (table === 'booking_modifications') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({
+                  data: {
+                    id: 'mod-1',
+                    booking_id: baseBooking.id,
+                    requested_start: '2026-07-01',
+                    requested_end: '2026-07-05',
+                    original_start: '2026-06-01',
+                    original_end: '2026-06-05',
+                    status: 'pending',
+                    requested_by: mockUsers[1].id,
+                  },
+                  error: null,
+                })),
+              })),
+            })),
+            update: mock(() => ({
+              eq: mock(async () => ({ error: null })),
+            })),
+          };
+        }
+        return {};
+      });
+    }
+
+    it('should accept a pending modification and update booking dates', async () => {
+      setupAcceptMock();
+      const result = await bookingService.acceptModification(baseBooking.id, mockUsers[0].id, 'mod-1');
+      expect(result.success).toBe(true);
+      expect(result.data?.check_in).toBe('2026-07-01');
+      expect(result.data?.check_out).toBe('2026-07-05');
+    });
+
+    it('should return error when modification is not found', async () => {
+      mockFrom.mockImplementation(() => ({
+        select: mock(() => ({
+          eq: mock(() => ({
+            single: mock(async () => ({ data: null, error: { message: 'Not found' } })),
+          })),
+        })),
+      }));
+
+      const result = await bookingService.acceptModification(baseBooking.id, mockUsers[0].id, 'nonexistent');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Modification request not found');
+    });
+
+    it('should return error when caller is not the host', async () => {
+      setupAcceptMock();
+      const result = await bookingService.acceptModification(baseBooking.id, mockUsers[1].id, 'mod-1');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Forbidden');
+    });
+
+    it('should return error when modification is already accepted', async () => {
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'bookings') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({ data: baseBooking, error: null })),
+              })),
+            })),
+          };
+        }
+        if (table === 'booking_modifications') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({
+                  data: {
+                    id: 'mod-1',
+                    booking_id: baseBooking.id,
+                    status: 'accepted',
+                    requested_by: mockUsers[1].id,
+                  },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        return {};
+      });
+
+      const result = await bookingService.acceptModification(baseBooking.id, mockUsers[0].id, 'mod-1');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('already accepted');
+    });
+  });
+
+  // ── declineModification ─────────────────────────────────────────────────────
+
+  describe('declineModification', () => {
+    const baseBooking = {
+      id: mockBookings[0].id,
+      property_id: mockProperties[0].id,
+      tenant_id: mockUsers[1].id,
+      check_in: '2026-06-01',
+      check_out: '2026-06-05',
+      status: 'Confirmed',
+      properties: {
+        owner_id: mockUsers[0].id,
+      },
+    };
+
+    function setupDeclineMock() {
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'bookings') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({ data: baseBooking, error: null })),
+              })),
+            })),
+          };
+        }
+        if (table === 'booking_modifications') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({
+                  data: {
+                    id: 'mod-1',
+                    booking_id: baseBooking.id,
+                    requested_start: '2026-07-01',
+                    requested_end: '2026-07-05',
+                    original_start: '2026-06-01',
+                    original_end: '2026-06-05',
+                    status: 'pending',
+                    requested_by: mockUsers[1].id,
+                  },
+                  error: null,
+                })),
+              })),
+            })),
+            update: mock(() => ({
+              eq: mock(() => ({
+                select: mock(() => ({
+                  single: mock(async () => ({
+                    data: {
+                      id: 'mod-1',
+                      booking_id: baseBooking.id,
+                      status: 'declined',
+                      requested_start: '2026-07-01',
+                      requested_end: '2026-07-05',
+                      original_start: '2026-06-01',
+                      original_end: '2026-06-05',
+                      requested_by: mockUsers[1].id,
+                    },
+                    error: null,
+                  })),
+                })),
+              })),
+            })),
+          };
+        }
+        return {};
+      });
+    }
+
+    it('should decline a pending modification successfully', async () => {
+      setupDeclineMock();
+      const result = await bookingService.declineModification(baseBooking.id, mockUsers[0].id, 'mod-1');
+      expect(result.success).toBe(true);
+      expect(result.data?.status).toBe('declined');
+    });
+
+    it('should return error when caller is not the host', async () => {
+      setupDeclineMock();
+      const result = await bookingService.declineModification(baseBooking.id, mockUsers[1].id, 'mod-1');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Forbidden');
+    });
+
+    it('should return error when modification is already declined', async () => {
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'bookings') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({ data: baseBooking, error: null })),
+              })),
+            })),
+          };
+        }
+        if (table === 'booking_modifications') {
+          return {
+            select: mock(() => ({
+              eq: mock(() => ({
+                single: mock(async () => ({
+                  data: {
+                    id: 'mod-1',
+                    booking_id: baseBooking.id,
+                    status: 'declined',
+                    requested_by: mockUsers[1].id,
+                  },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        return {};
+      });
+
+      const result = await bookingService.declineModification(baseBooking.id, mockUsers[0].id, 'mod-1');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('already declined');
     });
   });
 });

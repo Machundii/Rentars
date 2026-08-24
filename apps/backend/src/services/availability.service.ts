@@ -161,13 +161,14 @@ export async function isDateRangeAvailable(
 }
 
 /**
- * Full availability check: validates dates, min/max stay, blocked ranges, and booking conflicts.
- * Returns an AvailabilityWindow with full details.
- */
+  * Full availability check: validates dates, min/max stay, blocked ranges, and booking conflicts.
+  * Returns an AvailabilityWindow with full details.
+  */
 export async function checkDateRangeAvailability(
   propertyId: string,
   checkIn: string,
   checkOut: string,
+  excludeBookingId?: string,
 ): Promise<ServiceResponse<AvailabilityWindow>> {
   const checkInDate = parseDate(checkIn);
   const checkOutDate = parseDate(checkOut);
@@ -249,7 +250,7 @@ export async function checkDateRangeAvailability(
   }
 
   // Check booking conflicts (active bookings, not cancelled)
-  const { data: conflictingBookings } = await supabase
+  let conflictQuery = supabase
     .from('bookings')
     .select('id')
     .eq('property_id', propertyId)
@@ -257,6 +258,12 @@ export async function checkDateRangeAvailability(
     .lt('check_in', checkOut)
     .gt('check_out', checkIn)
     .limit(1);
+
+  if (excludeBookingId) {
+    conflictQuery = conflictQuery.neq('id', excludeBookingId);
+  }
+
+  const { data: conflictingBookings } = await conflictQuery;
 
   if (conflictingBookings && conflictingBookings.length > 0) {
     return {

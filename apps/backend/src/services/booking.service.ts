@@ -26,6 +26,8 @@ import {
   bookingsCreatedTotal,
   escrowFailuresTotal,
 } from '@/middleware/metrics.middleware.js';
+import { checkDateRangeAvailability } from './availability.service.js';
+import { calculateRangePrice } from './pricing.service.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +64,20 @@ export interface BookingStatusHistory {
   created_at: string;
 }
 
+export interface BookingModification {
+  id: string;
+  booking_id: string;
+  requested_start: string;
+  requested_end: string;
+  original_start: string;
+  original_end: string;
+  status: string;
+  requested_by: string;
+  reason?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface CreateBookingInput {
   property_id: string;
   tenant_id: string;
@@ -71,6 +87,14 @@ export interface CreateBookingInput {
   total_price: number;
   rules_acknowledged_at?: string;
   on_chain_property_id?: bigint;
+}
+
+export interface RequestModificationInput {
+  booking_id: string;
+  tenant_id: string;
+  requested_start: string;
+  requested_end: string;
+  reason?: string;
 }
 
 /**
@@ -1373,5 +1397,363 @@ export class BookingService {
     });
 
     return { success: true, data: updatedData as Booking };
+  }
+
+  // ── Modification Request ────────────────────────────────────────────────────
+
+  /**
+   * Request a date change for a booking.
+   *
+   * Allowed transitions: Confirmed or Pending → modification requested.
+   * Only the booking tenant may request a modification.
+   *
+   * @param bookingId    - UUID of the booking
+   * @param tenantId     - UUID of the caller (must be the tenant)
+   * @param requestedStart - New requested check-in date (ISO 8601 date)
+   * @param requestedEnd   - New requested check-out date (ISO 8601 date)
+   * @param reason       - Optional reason for the date change
+   * @returns ServiceResponse with the created modification record
+   */
+  async requestModification(
+    bookingId: string,
+    tenantId: string,
+    requestedStart: string,
+    requestedEnd: string,
+    reason?: string,
+  ): Promise<ServiceResponse<BookingModification>> {
+    if (!bookingId) {
+      return { success: false, error: 'Booking ID is required' };
+    }
+
+    if (!tenantId) {
+      return { success: false, error: 'Tenant ID is required' };
+    }
+
+    const startDate = new Date(requestedStart);
+    const endDate = new Date(requestedEnd);
+
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      return { success: false, error: 'requested_start and requested_end must be valid dates' };
+    }
+
+    if (startDate >= endDate) {
+      return { success: false, error: 'requested_start must be before requested_end' };
+    }
+
+    const { data: bookingData, error: fetchError } = await supabase
+      .from('bookings')
+      .select('*, properties!inner(owner_id, check_in_time, check_out_time, min_nights, max_nights)')
+      .eq('id', bookingId)
+      .single();
+
+    if (fetchError || !bookingData) {
+      return { success: false, error: 'Booking not found' };
+    }
+
+    const booking = bookingData as Booking & {
+      properties: {
+        owner_id: string;
+        check_in_time?: string;
+        check_out_time?: string;
+        min_nights?: number;
+        max_nights?: number | null;
+      };
+    };
+
+    if (booking.tenant_id !== tenantId) {
+      return { success: false, error: 'Forbidden: only the tenant can request a modification' };
+    }
+
+    if (booking.status === 'Cancelled' || booking.status === 'Completed' || booking.status === 'Disputed') {
+      return {
+        success: false,
+        error: `Cannot request modification for a booking in '${booking.status}' status`,
+      };
+    }
+
+    if (!booking.check_in || !booking.check_out) {
+      return { success: false, error: 'Booking is missing date information' };
+    }
+
+    const originalStart = new Date(booking.check_in);
+    const originalEnd = new Date(booking.check_out);
+    const nights = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    const minNights = booking.properties?.min_nights ?? 1;
+    if (nights < minNights) {
+      return {
+        success: false,
+        error: `This property requires a minimum stay of ${minNights} night${minNights === 1 ? '' : 's'} (requested: ${nights})`,
+      };
+    }
+
+    const maxNights = booking.properties?.max_nights ?? null;
+    if (maxNights !== null && maxNights !== undefined && nights > maxNights) {
+      return {
+        success: false,
+        error: `This property allows a maximum stay of ${maxNights} night${maxNights === 1 ? '' : 's'} (requested: ${nights})`,
+      };
+    }
+
+    if (booking.properties?.check_in_time && booking.properties?.check_out_time) {
+      const { data: sameDayBooking } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('property_id', booking.property_id)
+        .eq('check_out', requestedStart)
+        .neq('status', 'Cancelled')
+        .neq('id', bookingId)
+        .maybeSingle();
+
+      if (sameDayBooking && booking.properties.check_out_time >= booking.properties.check_in_time) {
+        return {
+          success: false,
+          error: `Same-day check-in is not available for the requested dates`,
+        };
+      }
+    }
+
+    const availabilityResult = await checkDateRangeAvailability(booking.property_id!, requestedStart, requestedEnd, bookingId);
+    if (!availabilityResult.success || !availabilityResult.data?.is_available) {
+      return {
+        success: false,
+        error: availabilityResult.data?.unavailable_reason ?? 'Requested dates are not available',
+        conflict: true,
+      };
+    }
+
+    const { data: modification, error: insertError } = await supabase
+      .from('booking_modifications')
+      .insert({
+        booking_id: bookingId,
+        requested_start: requestedStart,
+        requested_end: requestedEnd,
+        original_start: booking.check_in,
+        original_end: booking.check_out,
+        status: 'pending',
+        requested_by: tenantId,
+        reason: reason ?? null,
+      })
+      .select()
+      .single();
+
+    if (insertError || !modification) {
+      return { success: false, error: insertError?.message ?? 'Failed to create modification request' };
+    }
+
+    if (booking.properties?.owner_id) {
+      createNotification(booking.properties.owner_id, 'booking_modification_requested', {
+        booking_id: bookingId,
+        modification_id: modification.id,
+        requested_start: requestedStart,
+        requested_end: requestedEnd,
+        tenant_id: tenantId,
+      }).catch(() => {});
+    }
+
+    return { success: true, data: modification as BookingModification };
+  }
+
+  /**
+   * Accept a date-change request for a booking.
+   *
+   * Only the property owner (host) may accept a modification.
+   * Re-validates availability and recomputes pricing before updating.
+   *
+   * @param bookingId     - UUID of the booking
+   * @param hostId        - UUID of the caller (must be the host)
+   * @param modificationId - UUID of the modification request
+   * @returns ServiceResponse with the updated booking
+   */
+  async acceptModification(
+    bookingId: string,
+    hostId: string,
+    modificationId: string,
+  ): Promise<ServiceResponse<Booking>> {
+    if (!bookingId) {
+      return { success: false, error: 'Booking ID is required' };
+    }
+
+    if (!modificationId) {
+      return { success: false, error: 'Modification ID is required' };
+    }
+
+    const { data: bookingData, error: fetchError } = await supabase
+      .from('bookings')
+      .select('*, properties!inner(owner_id, base_price_per_night)')
+      .eq('id', bookingId)
+      .single();
+
+    if (fetchError || !bookingData) {
+      return { success: false, error: 'Booking not found' };
+    }
+
+    const booking = bookingData as Booking & {
+      properties: { owner_id: string; base_price_per_night: number };
+    };
+
+    if (booking.properties.owner_id !== hostId) {
+      return { success: false, error: 'Forbidden: only the host can accept a modification' };
+    }
+
+    const { data: modificationData, error: modError } = await supabase
+      .from('booking_modifications')
+      .select('*')
+      .eq('id', modificationId)
+      .eq('booking_id', bookingId)
+      .single();
+
+    if (modError || !modificationData) {
+      return { success: false, error: 'Modification request not found' };
+    }
+
+    const modification = modificationData as BookingModification;
+
+    if (modification.status !== 'pending') {
+      return {
+        success: false,
+        error: `Modification is already ${modification.status}`,
+      };
+    }
+
+    const availabilityResult = await checkDateRangeAvailability(
+      booking.property_id!,
+      modification.requested_start,
+      modification.requested_end,
+      bookingId,
+    );
+    if (!availabilityResult.success || !availabilityResult.data?.is_available) {
+      return {
+        success: false,
+        error: availabilityResult.data?.unavailable_reason ?? 'Requested dates are no longer available',
+        conflict: true,
+      };
+    }
+
+    const priceResult = await calculateRangePrice(
+      booking.property_id!,
+      modification.requested_start,
+      modification.requested_end,
+    );
+    if (!priceResult.success) {
+      return { success: false, error: priceResult.error ?? 'Failed to recompute price' };
+    }
+
+    const newTotalPrice = Math.round(priceResult.data!.total * 100) / 100;
+
+    const { data: updatedBooking, error: updateError } = await supabase
+      .from('bookings')
+      .update({
+        check_in: modification.requested_start,
+        check_out: modification.requested_end,
+        total_price: newTotalPrice,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', bookingId)
+      .select()
+      .single();
+
+    if (updateError || !updatedBooking) {
+      return { success: false, error: updateError?.message ?? 'Failed to update booking dates' };
+    }
+
+    await supabase
+      .from('booking_modifications')
+      .update({ status: 'accepted', updated_at: new Date().toISOString() })
+      .eq('id', modificationId);
+
+    if (booking.tenant_id) {
+      createNotification(booking.tenant_id, 'booking_modification_accepted', {
+        booking_id: bookingId,
+        modification_id: modificationId,
+        requested_start: modification.requested_start,
+        requested_end: modification.requested_end,
+        total_price: newTotalPrice,
+      }).catch(() => {});
+    }
+
+    return { success: true, data: updatedBooking as Booking };
+  }
+
+  /**
+   * Decline a date-change request for a booking.
+   *
+   * Only the property owner (host) may decline a modification.
+   *
+   * @param bookingId     - UUID of the booking
+   * @param hostId        - UUID of the caller (must be the host)
+   * @param modificationId - UUID of the modification request
+   * @returns ServiceResponse with the declined modification record
+   */
+  async declineModification(
+    bookingId: string,
+    hostId: string,
+    modificationId: string,
+  ): Promise<ServiceResponse<BookingModification>> {
+    if (!bookingId) {
+      return { success: false, error: 'Booking ID is required' };
+    }
+
+    if (!modificationId) {
+      return { success: false, error: 'Modification ID is required' };
+    }
+
+    const { data: bookingData, error: fetchError } = await supabase
+      .from('bookings')
+      .select('*, properties!inner(owner_id)')
+      .eq('id', bookingId)
+      .single();
+
+    if (fetchError || !bookingData) {
+      return { success: false, error: 'Booking not found' };
+    }
+
+    const booking = bookingData as Booking & { properties: { owner_id: string } };
+
+    if (booking.properties.owner_id !== hostId) {
+      return { success: false, error: 'Forbidden: only the host can decline a modification' };
+    }
+
+    const { data: modificationData, error: modError } = await supabase
+      .from('booking_modifications')
+      .select('*')
+      .eq('id', modificationId)
+      .eq('booking_id', bookingId)
+      .single();
+
+    if (modError || !modificationData) {
+      return { success: false, error: 'Modification request not found' };
+    }
+
+    const modification = modificationData as BookingModification;
+
+    if (modification.status !== 'pending') {
+      return {
+        success: false,
+        error: `Modification is already ${modification.status}`,
+      };
+    }
+
+    const { data: updatedModification, error: updateError } = await supabase
+      .from('booking_modifications')
+      .update({ status: 'declined', updated_at: new Date().toISOString() })
+      .eq('id', modificationId)
+      .select()
+      .single();
+
+    if (updateError || !updatedModification) {
+      return { success: false, error: updateError?.message ?? 'Failed to decline modification' };
+    }
+
+    if (booking.tenant_id) {
+      createNotification(booking.tenant_id, 'booking_modification_declined', {
+        booking_id: bookingId,
+        modification_id: modificationId,
+        requested_start: modification.requested_start,
+        requested_end: modification.requested_end,
+      }).catch(() => {});
+    }
+
+    return { success: true, data: updatedModification as BookingModification };
   }
 }

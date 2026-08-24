@@ -13,6 +13,9 @@ export type NotificationType =
   | 'booking_created'
   | 'booking_confirmed'
   | 'booking_cancelled'
+  | 'booking_modification_requested'
+  | 'booking_modification_accepted'
+  | 'booking_modification_declined'
   | 'payment_received'
   | 'booking_reminder'
   | 'review_requested'
@@ -53,6 +56,9 @@ const EMAIL_TEMPLATES: Partial<Record<NotificationType, string>> = {
   booking_created: 'Booking Created',
   booking_confirmed: 'Booking Confirmed',
   booking_cancelled: 'Booking Cancelled',
+  booking_modification_requested: 'Booking Modification Requested',
+  booking_modification_accepted: 'Booking Modification Accepted',
+  booking_modification_declined: 'Booking Modification Declined',
   payment_received: 'Payment Received',
   booking_reminder: 'Booking Reminder',
   review_requested: 'Review Requested',

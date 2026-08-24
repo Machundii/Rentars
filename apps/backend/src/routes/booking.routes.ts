@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import {
+  acceptModification,
   cancelBooking,
   completeBooking,
   confirmBooking,
   createBooking,
+  declineModification,
   deleteBooking,
   disputeBooking,
   getBooking,
@@ -12,6 +14,7 @@ import {
   getBookingStatusHistory,
   listUserBookings,
   raiseDispute,
+  requestModification,
   resolveDispute,
   updateBooking,
 } from '@/controllers/booking.controller.js';
@@ -22,6 +25,7 @@ import {
   cancelBookingSchema,
   createBookingSchema,
   raiseDisputeSchema,
+  requestModificationSchema,
   resolveDisputeSchema,
   updateBookingSchema,
   validateBody,
@@ -97,5 +101,17 @@ router.patch('/:id', authenticate, validateBody(updateBookingSchema), updateBook
 
 // DELETE /api/v1/bookings/:id
 router.delete('/:id', authenticate, deleteBooking);
+
+// POST /api/v1/bookings/:id/modifications
+// Tenant requests a date change → status: pending
+router.post('/:id/modifications', authenticate, validateBody(requestModificationSchema), requestModification);
+
+// POST /api/v1/bookings/:id/modifications/:modId/accept
+// Host accepts the date-change request
+router.post('/:id/modifications/:modId/accept', authenticate, acceptModification);
+
+// POST /api/v1/bookings/:id/modifications/:modId/decline
+// Host declines the date-change request
+router.post('/:id/modifications/:modId/decline', authenticate, declineModification);
 
 export default router;

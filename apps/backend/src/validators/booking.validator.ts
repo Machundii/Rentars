@@ -96,6 +96,24 @@ export const resolveDisputeSchema = z.object({
     .optional(),
 });
 
+// ─── Modification schemas ─────────────────────────────────────────────────────
+
+export const requestModificationSchema = z.object({
+  requested_start: z
+    .string({ required_error: 'requested_start is required' })
+    .date('requested_start must be a valid ISO date (YYYY-MM-DD)'),
+  requested_end: z
+    .string({ required_error: 'requested_end is required' })
+    .date('requested_end must be a valid ISO date (YYYY-MM-DD)'),
+  reason: z
+    .string()
+    .max(1000, 'reason must not exceed 1000 characters')
+    .optional(),
+}).refine(
+  (data) => new Date(data.requested_end) > new Date(data.requested_start),
+  { message: 'requested_end must be after requested_start', path: ['requested_end'] },
+);
+
 // ─── Middleware factory ───────────────────────────────────────────────────────
 
 export function validateBody<T extends z.ZodTypeAny>(schema: T) {
