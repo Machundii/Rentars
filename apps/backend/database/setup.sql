@@ -33,3 +33,4 @@
 \i migrations/00020_add_missing_indexes.sql
 \i migrations/00021_add_rls_wishlists_notifications.sql
 \i migrations/00033_weighted_search_vector.sql
+\i migrations/00034_create_saved_searches_table.sql

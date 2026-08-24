@@ -321,6 +321,13 @@ export async function createProperty(
         console.error('[createProperty] notifyHostFollowers failed:', err),
       );
     });
+
+    // Notify tenants whose saved searches match this new listing.
+    import('./savedSearch.service.js').then(({ notifyMatchingSavedSearches }) => {
+      notifyMatchingSavedSearches(property).catch((err) =>
+        console.error('[createProperty] notifyMatchingSavedSearches failed:', err),
+      );
+    });
   }
 
   return { success: true, data: property };
