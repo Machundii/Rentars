@@ -113,39 +113,26 @@ export async function searchPropertiesByQuery(
   const q = query.trim();
   if (!q) return { success: true, data: [] };
 
-  const tsQuery = toTsQuery(q);
-  if (!tsQuery) return { success: true, data: [] };
-
-  const { data, error } = await supabase
-    .from('properties')
-    .select('*')
-    // Uses generated column search_vector + GIN index
-    .textSearch('search_vector', tsQuery, { config: 'english' })
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false });
+  // Use the search_properties_ranked RPC which applies ts_rank_cd against
+  // the weighted search_vector (A=title, B=city, C=description, D=amenities)
+  // so title matches naturally outrank description-only matches.
+  const { data, error } = await supabase.rpc('search_properties_ranked', {
+    search_query: q,
+    result_limit: 50,
+    result_offset: 0,
+  });
 
   if (error) {
     return { success: false, error: error.message };
   }
 
+  // RPC returns jsonb rows; each row is a full property object with an
+  // extra `rank` field added by the function.
   const properties = (data ?? []) as Property[];
   if (properties.length === 0) return { success: true, data: [] };
 
-  // Score using denormalized rating aggregates for reputation boost.
-  // Score = avg_rating * log(1 + review_count); unreviewed properties score 0.
-  const scored = properties.map((p) => {
-    const score =
-      p.average_rating && p.review_count && p.review_count > 0
-        ? (p.average_rating as number) * Math.log1p(p.review_count as number)
-        : 0;
-    return { property: p, score };
-  });
-  scored.sort((a, b) => b.score - a.score);
-
-  const sorted = scored.map((s) => s.property);
-
   // Promote featured listings to the top (capped at FEATURED_CAP).
-  return { success: true, data: promoteFeatureToTop(sorted) };
+  return { success: true, data: promoteFeatureToTop(properties) };
 }
 
 // ─── Zero-result relaxed suggestions ──────────────────────────────────────────

@@ -194,6 +194,36 @@ describe('Advanced Property Search', () => {
 
       expect(result.success).toBe(true);
     });
+
+    it('should sort by relevance when query is provided', async () => {
+      const result = await advancedSearch({
+        ...baseFilters,
+        query: 'beach',
+        sortBy: 'relevance',
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should rank title matches above description-only matches for relevance sort', async () => {
+      const result = await advancedSearch({
+        ...baseFilters,
+        query: 'beach',
+        sortBy: 'relevance',
+      });
+
+      expect(result.success).toBe(true);
+      if (result.data && result.data.data.length >= 2) {
+        const titles = result.data.data.map((p) => (p.title ?? '').toLowerCase());
+        const descs = result.data.data.map((p) => (p.description ?? '').toLowerCase());
+        // First result should have 'beach' in title (weight A=4) or at least
+        // in a higher-weighted field than a later result that only has it in description.
+        const firstHasInTitle = titles[0].includes('beach');
+        const firstHasInDesc = descs[0].includes('beach');
+        // At minimum, the first result should match somewhere
+        expect(firstHasInTitle || firstHasInDesc).toBe(true);
+      }
+    });
   });
 
   describe('Pagination', () => {

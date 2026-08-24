@@ -32,3 +32,4 @@
 \i migrations/00019_add_rules_acknowledged_to_bookings.sql
 \i migrations/00020_add_missing_indexes.sql
 \i migrations/00021_add_rls_wishlists_notifications.sql
+\i migrations/00033_weighted_search_vector.sql
