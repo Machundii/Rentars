@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '@/config/env.js';
+import { setRequestContextUserId } from '@/services/logging.service.js';
 
 export interface AuthRequest extends Request {
   userId?: string;
@@ -21,6 +22,9 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
     // Populate both shapes so legacy code (req.userId) and newer code (req.user.id) work.
     req.userId = decoded.userId;
     req.user = { id: decoded.userId, role: decoded.role };
+    // Make the user id available to log calls made later in this request's
+    // async chain (see logging.service.ts's AsyncLocalStorage-based context).
+    setRequestContextUserId(decoded.userId);
     next();
   } catch {
     res.status(401).json({ error: 'Invalid token' });

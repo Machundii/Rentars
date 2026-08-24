@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { type Request, type Response, type NextFunction } from 'express';
 import { env } from '../config/env.js';
+import { getRequestContext, runWithRequestContext } from '../services/logging.service.js';
 
 // ── Log levels ────────────────────────────────────────────────────────────────
 
@@ -41,14 +42,24 @@ export function structuredLog(entry: LogEntry): void {
   const configuredLevel = getConfiguredLevel();
   if (LEVEL_PRIORITY[entry.level] < LEVEL_PRIORITY[configuredLevel]) return;
 
+  // Fall back to the AsyncLocalStorage-backed request context for any field
+  // the caller didn't set explicitly, so log calls made deep inside services
+  // (with no direct access to `req`) still carry the correlation id.
+  const context = getRequestContext();
+  const merged: LogEntry = {
+    ...entry,
+    requestId: entry.requestId ?? context?.requestId,
+    userId: entry.userId ?? context?.userId,
+  };
+
   const line =
     env.NODE_ENV === 'development'
-      ? JSON.stringify(entry, null, 2)
-      : JSON.stringify(entry);
+      ? JSON.stringify(merged, null, 2)
+      : JSON.stringify(merged);
 
-  if (entry.level === 'error') {
+  if (merged.level === 'error') {
     console.error(line);
-  } else if (entry.level === 'warn') {
+  } else if (merged.level === 'warn') {
     console.warn(line);
   } else {
     console.log(line);
@@ -82,7 +93,11 @@ export function requestIdMiddleware(
   // Echo back so the client can correlate responses
   res.setHeader('X-Request-Id', requestId);
 
-  next();
+  // Bind the correlation id (and method/path) to the async context for the
+  // rest of the request lifecycle, so any log call made further down the
+  // stack — controllers, services, blockchain/Supabase calls — can pick it
+  // up via `getRequestContext()` without `req` being passed around.
+  runWithRequestContext({ requestId, method: req.method, path: req.path }, next);
 }
 
 // ── Typed request extension ───────────────────────────────────────────────────
