@@ -28,7 +28,8 @@ export interface OptimizeOptions {
 }
 
 /**
- * Compresses and converts an image buffer to WebP.
+ * Compresses, auto-rotates, strips metadata, and converts an image buffer to WebP.
+ * Strips all EXIF/GPS data by default during re-encoding.
  * Falls back to original buffer when sharp is unavailable.
  */
 export async function optimizeImage(
@@ -44,6 +45,7 @@ export async function optimizeImage(
   }
 
   const optimized = await (sharp as any)(buffer)
+    .rotate()
     .resize(maxWidth, maxHeight, { fit: 'inside', withoutEnlargement: true })
     .webp({ quality })
     .toBuffer();
@@ -65,33 +67,73 @@ function extractStoragePath(imageUrl: string): string {
 export async function uploadImage(
   propertyId: string,
   file: MulterFile,
-): Promise<string> {
-  const { buffer: optimizedBuffer, mimetype: optimizedMime } = await optimizeImage(
+): Promise<{ url: string; thumbnailUrl: string }> {
+  const timestamp = Date.now();
+  const safeBaseName = file.originalname.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_') || 'image';
+
+  // Process main image (max 1920px, EXIF stripped, WebP)
+  const { buffer: mainBuffer, mimetype: mainMime } = await optimizeImage(
     file.buffer,
-    file.mimetype
+    file.mimetype,
+    { maxWidth: 1920, maxHeight: 1080, quality: 80 }
   );
 
-  const ext = optimizedMime === 'image/webp' ? 'webp' : file.originalname.split('.').pop() ?? 'jpg';
-  const fileName = `${propertyId}/${Date.now()}-${file.originalname.replace(/\.[^.]+$/, '')}.${ext}`;
+  // Process thumbnail variant (max 800px, EXIF stripped, WebP)
+  const { buffer: thumbBuffer, mimetype: thumbMime } = await optimizeImage(
+    file.buffer,
+    file.mimetype,
+    { maxWidth: 800, maxHeight: 600, quality: 80 }
+  );
 
-  const { error } = await supabase.storage
+  const mainExt = mainMime === 'image/webp' ? 'webp' : 'jpg';
+  const thumbExt = thumbMime === 'image/webp' ? 'webp' : 'jpg';
+
+  const mainFileName = `${propertyId}/${timestamp}-${safeBaseName}.${mainExt}`;
+  const thumbFileName = `${propertyId}/thumb_${timestamp}-${safeBaseName}.${thumbExt}`;
+
+  // Upload main image
+  const { error: mainError } = await supabase.storage
     .from(STORAGE_BUCKET)
-    .upload(fileName, optimizedBuffer, {
-      contentType: optimizedMime,
+    .upload(mainFileName, mainBuffer, {
+      contentType: mainMime,
     });
 
-  if (error) {
-    throw new Error(`Failed to upload image: ${error.message}`);
+  if (mainError) {
+    throw new Error(`Failed to upload image: ${mainError.message}`);
   }
 
-  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(fileName);
-  return data.publicUrl;
+  // Upload thumbnail variant
+  const { error: thumbError } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(thumbFileName, thumbBuffer, {
+      contentType: thumbMime,
+    });
+
+  if (thumbError) {
+    throw new Error(`Failed to upload thumbnail: ${thumbError.message}`);
+  }
+
+  const { data: mainData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(mainFileName);
+  const { data: thumbData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(thumbFileName);
+
+  return {
+    url: mainData.publicUrl,
+    thumbnailUrl: thumbData.publicUrl,
+  };
 }
 
-export async function deleteImage(imageUrl: string): Promise<void> {
-  const filePath = extractStoragePath(imageUrl);
+export async function deleteImage(imageUrl: string, thumbnailUrl?: string | null): Promise<void> {
+  const pathsToDelete: string[] = [extractStoragePath(imageUrl)];
 
-  const { error } = await supabase.storage.from(STORAGE_BUCKET).remove([filePath]);
+  if (thumbnailUrl) {
+    try {
+      pathsToDelete.push(extractStoragePath(thumbnailUrl));
+    } catch {
+      // Ignore if thumbnail storage path extraction fails
+    }
+  }
+
+  const { error } = await supabase.storage.from(STORAGE_BUCKET).remove(pathsToDelete);
 
   if (error) {
     throw new Error(`Failed to delete image: ${error.message}`);
