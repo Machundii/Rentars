@@ -15,3 +15,29 @@ export async function connectRedis(): Promise<void> {
   await redisClient.connect();
   connected = true;
 }
+
+const REDIS_PING_TIMEOUT_MS = 1500;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Redis operation timed out')), ms);
+    }),
+  ]);
+}
+
+/**
+ * Verify Redis connectivity with a bounded-time PING.
+ *
+ * @returns true if Redis replies with PONG within the timeout, false otherwise
+ */
+export async function pingRedis(): Promise<boolean> {
+  try {
+    await withTimeout(connectRedis(), REDIS_PING_TIMEOUT_MS);
+    const reply = await withTimeout(redisClient.ping(), REDIS_PING_TIMEOUT_MS);
+    return reply === 'PONG';
+  } catch {
+    return false;
+  }
+}
