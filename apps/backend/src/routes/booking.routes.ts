@@ -19,6 +19,7 @@ import { authenticate } from '@/middleware/auth.middleware.js';
 import { requireEmailVerified } from '@/middleware/emailVerified.middleware.js';
 import { createUserRateLimiter } from '@/middleware/rateLimiter.js';
 import {
+  cancelBookingSchema,
   createBookingSchema,
   raiseDisputeSchema,
   resolveDisputeSchema,
@@ -81,7 +82,9 @@ router.post('/:id/complete', authenticate, completeBooking);
 router.post('/:id/dispute', authenticate, disputeBooking);
 
 // POST /api/v1/bookings/:id/cancel
-router.post('/:id/cancel', authenticate, cancelBooking);
+// Tenant cancels a booking → refund computed per policy → escrow settled → both parties notified
+// Body (optional): { reason?: string }
+router.post('/:id/cancel', authenticate, validateBody(cancelBookingSchema), cancelBooking);
 
 // POST /api/v1/bookings/:id/dispute
 router.post('/:id/dispute', authenticate, validateBody(raiseDisputeSchema), raiseDispute);

@@ -17,6 +17,7 @@ import { loggingService } from './logging.service.js';
 import { createNotification, getPreferences } from './notification.service.js';
 import { emailService } from './email.service.js';
 import { buildPreferenceUrlForUser } from './preferenceToken.js';
+import { computeRefund } from './refundPolicy.service.js';
 import { decodeCursor, buildCursorPage } from '../utils/cursor.js';
 import type { CursorPaginatedResult } from './notification.service.js';
 import type { ServiceResponse } from './index.js';
@@ -40,6 +41,14 @@ export interface Booking {
   escrow_id?: string;
   on_chain_id?: number;
   rules_acknowledged_at?: string | null;
+  /** Set when a booking is cancelled; ISO timestamp of the cancellation. */
+  cancelled_at?: string | null;
+  /** Amount refunded to the tenant on cancellation (currency units). */
+  refund_amount?: number | null;
+  /** Refund tier applied on cancellation: 'full' | 'partial' | 'none'. */
+  refund_tier?: string | null;
+  /** Refund fraction (0..1) applied per the configured policy. */
+  refund_policy_pct?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -555,17 +564,49 @@ export class BookingService {
   // ── Cancel ─────────────────────────────────────────────────────────────────
 
   /**
-   * Cancel a booking: cancel the escrow, update DB status, and update
-   * the on-chain booking status to Cancelled.
+   * Cancel a booking as the tenant.
+   *
+   * The flow:
+   *   1. Load the booking (joined with its property owner for host notification).
+   *   2. Authorise: only the tenant may cancel.
+   *   3. Validate eligibility: the booking must be in a cancellable state
+   *      (not already Cancelled, Completed, or Disputed).
+   *   4. Compute the refund amount from the configured refund policy.
+   *   5. Drive the appropriate escrow action for the refund tier.
+   *   6. Persist the cancellation (status, cancelled_at, refund details).
+   *   7. Notify both the tenant and the host.
+   *   8. Update the on-chain booking status (non-fatal on failure).
+   *
+   * Refund tiers (see refundPolicy.service.ts, configurable via env):
+   *   • full    (>= fullRefundHours before check-in) → escrow cancelled back to
+   *             the tenant (100% refund).
+   *   • partial (between noRefundHours and fullRefundHours) → escrow released to
+   *             the host, who is responsible for returning the tenant's
+   *             `refund_amount` (recorded on the booking).
+   *   • none    (< noRefundHours before check-in) → escrow released to the host,
+   *             no refund owed to the tenant.
+   *
+   * @param bookingId - UUID of the booking to cancel
+   * @param userId    - ID of the caller (must be the tenant)
+   * @param now       - Cancellation timestamp (defaults to now; injectable for tests)
    */
-  async cancelBooking(bookingId: string, userId: string): Promise<ServiceResponse<Booking>> {
+  async cancelBooking(
+    bookingId: string,
+    userId: string,
+    now: Date = new Date(),
+  ): Promise<ServiceResponse<Booking>> {
     if (!bookingId) {
       return { success: false, error: 'Booking ID is required' };
     }
 
+    if (!userId) {
+      return { success: false, error: 'User ID is required' };
+    }
+
+    // 1. Load booking + host owner id in a single round-trip
     const { data: bookingData, error: fetchError } = await supabase
       .from('bookings')
-      .select('*')
+      .select('*, properties(owner_id)')
       .eq('id', bookingId)
       .single();
 
@@ -573,44 +614,93 @@ export class BookingService {
       return { success: false, error: 'Booking not found' };
     }
 
-    const booking = bookingData as Booking;
+    const booking = bookingData as Booking & { properties?: { owner_id: string } | null };
+    const hostId = booking.properties?.owner_id ?? null;
 
-    if (booking.status === 'Cancelled') {
-      return { success: false, error: 'Booking is already cancelled' };
+    // 2. Authorisation: only the tenant may cancel
+    if (booking.tenant_id && booking.tenant_id !== userId) {
+      return {
+        success: false,
+        error: 'Forbidden: only the tenant can cancel a booking',
+        statusCode: 403,
+      };
     }
 
-    // Cancel escrow
+    // 3. Eligibility: must be in a cancellable state
+    const status = booking.status ?? '';
+    if (status === 'Cancelled') {
+      return { success: false, error: 'Booking is already cancelled' };
+    }
+    if (status === 'Completed') {
+      return { success: false, error: 'Cannot cancel a completed booking' };
+    }
+    if (status === 'Disputed') {
+      return {
+        success: false,
+        error: 'Cannot cancel a disputed booking. Resolve the dispute first.',
+      };
+    }
+
+    // 4. Compute refund per the configured policy
+    let refund;
+    try {
+      refund = computeRefund({
+        totalPrice: booking.total_price ?? 0,
+        checkIn: booking.check_in,
+        cancelledAt: now,
+      });
+    } catch (err) {
+      return { success: false, error: `Cannot compute refund: ${String(err)}` };
+    }
+
+    // 5. Drive the appropriate escrow action for the refund tier
     if (booking.escrow_id) {
-      loggingService.logBlockchainOperation('cancelEscrow', {
+      loggingService.logBlockchainOperation('cancelEscrowRefund', {
         bookingId,
         userId,
         escrowId: booking.escrow_id,
+        tier: refund.tier,
+        refundAmount: refund.refundAmount,
       });
 
       try {
-        await trustlessWorkClient.cancelEscrow(booking.escrow_id);
+        if (refund.tier === 'full') {
+          // Full refund: return the entire escrow to the tenant.
+          await trustlessWorkClient.cancelEscrow(booking.escrow_id);
+        } else {
+          // Partial or no refund: release the escrow to the host. For a partial
+          // refund the host is then responsible for returning the tenant's
+          // refund_amount (recorded on the booking below).
+          await trustlessWorkClient.releaseEscrow(
+            booking.escrow_id,
+            `Booking cancelled — refund ${refund.refundAmount} (tier: ${refund.tier})`,
+          );
+        }
       } catch (err) {
         loggingService.logBlockchainOperation(
-          'cancelEscrow',
-          {
-            bookingId,
-            userId,
-            escrowId: booking.escrow_id,
-          },
+          'cancelEscrowRefund',
+          { bookingId, userId, escrowId: booking.escrow_id, tier: refund.tier },
           undefined,
           String(err),
         );
         return {
           success: false,
-          error: `Failed to cancel escrow: ${String(err)}`,
+          error: `Failed to settle escrow: ${String(err)}`,
         };
       }
     }
 
-    // Update DB status
+    // 6. Persist the cancellation + refund outcome
+    const cancelledAt = now.toISOString();
     const { data: updatedData, error: updateError } = await supabase
       .from('bookings')
-      .update({ status: 'Cancelled' })
+      .update({
+        status: 'Cancelled',
+        cancelled_at: cancelledAt,
+        refund_amount: refund.refundAmount,
+        refund_tier: refund.tier,
+        refund_policy_pct: refund.refundPct,
+      })
       .eq('id', bookingId)
       .select()
       .single();
@@ -619,14 +709,22 @@ export class BookingService {
       return { success: false, error: updateError.message };
     }
 
-    // Notify tenant
+    // 7. Notify both parties
+    const notificationData = {
+      booking_id: bookingId,
+      refund_amount: refund.refundAmount,
+      refund_tier: refund.tier,
+      refund_policy_pct: refund.refundPct,
+    };
+
     if (booking.tenant_id) {
-      createNotification(booking.tenant_id, 'booking_cancelled', { booking_id: bookingId }).catch(
-        () => {},
-      );
+      createNotification(booking.tenant_id, 'booking_cancelled', notificationData).catch(() => {});
+    }
+    if (hostId) {
+      createNotification(hostId, 'booking_cancelled', notificationData).catch(() => {});
     }
 
-    // Update on-chain status (non-fatal)
+    // 8. Update on-chain status (non-fatal)
     if (booking.on_chain_id !== undefined && booking.on_chain_id !== null) {
       const callerAddress = await fetchStellarAddress(userId);
 

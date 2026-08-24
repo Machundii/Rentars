@@ -734,8 +734,8 @@ export const openApiSpec = {
         },
       },
       delete: {
-        summary: 'Cancel booking',
-        description: 'Cancel a booking and refund escrow',
+        summary: 'Delete booking',
+        description: 'Permanently delete a booking record',
         tags: ['Bookings'],
         security: [{ bearerAuth: [] }],
         parameters: [
@@ -748,9 +748,60 @@ export const openApiSpec = {
           },
         ],
         responses: {
-          '204': { description: 'Booking cancelled' },
+          '204': { description: 'Booking deleted' },
           '401': { $ref: '#/components/responses/Unauthorized' },
           '404': { $ref: '#/components/responses/NotFound' },
+        },
+      },
+    },
+
+    '/api/bookings/{id}/cancel': {
+      post: {
+        summary: 'Cancel booking',
+        description:
+          'Cancel a booking as the tenant. The refund amount is computed from the ' +
+          'configured refund policy (full / partial / none), the escrow is settled ' +
+          'accordingly, and both the tenant and host are notified. Only the tenant ' +
+          'may cancel, and only bookings in a cancellable state (Pending/Confirmed) ' +
+          'are eligible.',
+        tags: ['Bookings'],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            description: 'Booking UUID',
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  reason: { type: 'string', maxLength: 2000, description: 'Optional cancellation reason' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Booking cancelled with refund details',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/Booking' },
+              },
+            },
+          },
+          '401': { $ref: '#/components/responses/Unauthorized' },
+          '403': { $ref: '#/components/responses/Forbidden' },
+          '404': { $ref: '#/components/responses/NotFound' },
+          '409': { description: 'Booking is not in a cancellable state' },
+          '400': { $ref: '#/components/responses/BadRequest' },
         },
       },
     },
