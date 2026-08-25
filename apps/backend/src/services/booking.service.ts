@@ -163,6 +163,11 @@ export class BookingService {
       return { success: false, error: 'Booking ID is required' };
     }
 
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(id)) {
+      return { success: false, error: 'Booking ID must be a valid UUID' };
+    }
+
     const { data, error } = await supabase.from('bookings').select('*').eq('id', id).single();
 
     if (error) {
@@ -200,8 +205,16 @@ export class BookingService {
    * List bookings for a user (as tenant) with optional status filtering and
    * sorting, backed by cursor-based pagination.
    *
+   * Cursor pagination is only supported when `sort === 'created'`. The cursor
+   * payload encodes `(created_at, id)` as a keyset and drives a WHERE predicate
+   * that advances the window correctly. The `date` and `price` sort fields use
+   * nullable columns (`check_in`, `total_price`) whose NULL-safe multi-column
+   * keyset predicates are not currently implemented. Supplying a cursor with
+   * either of those sort modes returns an explicit error so the caller is never
+   * silently served a duplicate or restarted page.
+   *
    * @param userId  - UUID of the tenant
-   * @param cursor  - Opaque pagination cursor (omit for first page)
+   * @param cursor  - Opaque pagination cursor (omit for first page; only valid with sort='created')
    * @param limit   - Page size (1–100, default 20)
    * @param status  - Filter by booking status
    * @param sort    - Sort field: 'date' (check_in) | 'price' (total_price) | 'created' (default)
@@ -217,6 +230,16 @@ export class BookingService {
   ): Promise<ServiceResponse<CursorPaginatedResult<Booking>>> {
     if (!userId) {
       return { success: false, error: 'User ID is required' };
+    }
+
+    // Cursor keyset is only defined for the created_at sort field. Reject
+    // cursors for date/price sorts instead of silently ignoring them and
+    // serving duplicate or restarted pages.
+    if (cursor && sort !== 'created') {
+      return {
+        success: false,
+        error: 'Cursor pagination is only supported for sort=created',
+      };
     }
 
     const pageSize = Math.min(Math.max(1, limit), 100);

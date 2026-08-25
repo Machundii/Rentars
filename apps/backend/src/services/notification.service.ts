@@ -113,6 +113,12 @@ export async function getNotificationsCursor(
   cursor?: string | null,
   limit = 20,
 ): Promise<ServiceResponse<CursorPaginatedResult<Notification>>> {
+  // Reject non-finite or fractional limits so the service never passes an
+  // unexpected page size to Supabase. Valid integers are clamped to [1, 100].
+  if (!Number.isFinite(limit) || !Number.isInteger(limit)) {
+    return { success: false, error: 'limit must be a finite integer' };
+  }
+
   const pageSize = Math.min(Math.max(1, limit), 100);
   const decoded = decodeCursor(cursor);
 
