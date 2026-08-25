@@ -9,7 +9,11 @@ export function useAuthGuard() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !user) {
+    // Wait for the initial authentication check to complete before
+    // redirecting — prevents a logged-in user from flashing the login page.
+    if (isLoading) return;
+
+    if (!user) {
       router.push('/login');
     }
   }, [user, isLoading, router]);
