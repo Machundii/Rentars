@@ -215,7 +215,8 @@ export class BookingService {
     sort: 'date' | 'price' | 'created' = 'created',
     order: 'asc' | 'desc' = 'desc',
   ): Promise<ServiceResponse<CursorPaginatedResult<Booking>>> {
-    if (!userId) {
+    const trimmedUserId = (userId ?? '').trim();
+    if (!trimmedUserId) {
       return { success: false, error: 'User ID is required' };
     }
 
@@ -228,7 +229,7 @@ export class BookingService {
     let query = supabase
       .from('bookings')
       .select('*')
-      .eq('tenant_id', userId)
+      .eq('tenant_id', trimmedUserId)
       .order(sortColumn, { ascending })
       .order('id', { ascending: false })
       .limit(pageSize + 1);
