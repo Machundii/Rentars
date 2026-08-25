@@ -24,11 +24,20 @@ export async function getCalendarMonth(req: Request, res: Response): Promise<voi
     return;
   }
 
-  const result = await getMonthAvailability(
-    propertyId,
-    parseInt(year as string),
-    parseInt(month as string),
-  );
+  const yearNum = Number(year);
+  const monthNum = Number(month);
+
+  if (!Number.isInteger(yearNum) || !Number.isFinite(yearNum)) {
+    res.status(422).json({ error: 'year must be a valid integer' });
+    return;
+  }
+
+  if (!Number.isInteger(monthNum) || monthNum < 1 || monthNum > 12) {
+    res.status(422).json({ error: 'month must be an integer between 1 and 12' });
+    return;
+  }
+
+  const result = await getMonthAvailability(propertyId, yearNum, monthNum);
 
   if (!result.success) {
     res.status(400).json({ error: result.error });

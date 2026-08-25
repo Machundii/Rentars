@@ -14,8 +14,11 @@ function chain(result: unknown) {
     delete: mock(() => node),
     eq: mock(() => node),
     not: mock(() => node),
+    or: mock(() => node),
     order: mock(() => node),
-    limit: mock(async () => result),
+    // Return node (not a bare Promise) so callers can chain .or() after .limit().
+    // The `then` property makes the node itself thenable so `await node` resolves.
+    limit: mock(() => node),
     single: mock(async () => result),
     then: (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve),
   };
@@ -47,7 +50,9 @@ import {
   markAsRead,
   markAllAsRead,
   deleteNotification,
+  getNotificationsCursor,
 } from '../../src/services/notification.service.js';
+import { decodeCursor } from '../../src/utils/cursor.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -197,6 +202,70 @@ describe('notification.service', () => {
       );
       const result = await deleteNotification('n1', 'u1');
       expect(result.success).toBe(false);
+    });
+  });
+
+  // ── getNotificationsCursor — stable tie-breaker (#409) ──────────────────────
+
+  describe('getNotificationsCursor', () => {
+    const SHARED_TS = '2026-08-01T10:00:00.000Z';
+
+    // Two notifications sharing an identical created_at — id is the only differentiator
+    const row1 = { id: 'b-uuid', user_id: 'u1', type: 'booking_created', data: {}, read: false, created_at: SHARED_TS };
+    const row2 = { id: 'a-uuid', user_id: 'u1', type: 'booking_confirmed', data: {}, read: false, created_at: SHARED_TS };
+
+    it('first page returns the expected row and a non-null nextCursor', async () => {
+      // Returning 2 rows for a page size of 1 activates the hasMore detection
+      mockFrom.mockImplementation((_: string) =>
+        chain({ data: [row1, row2], error: null }),
+      );
+
+      const result = await getNotificationsCursor('u1', null, 1);
+      expect(result.success).toBe(true);
+      expect(result.data?.data).toHaveLength(1);
+      expect(result.data?.data[0].id).toBe(row1.id);
+      expect(result.data?.nextCursor).not.toBeNull();
+    });
+
+    it('cursor encodes both created_at and id for the tie-breaker', async () => {
+      mockFrom.mockImplementation((_: string) =>
+        chain({ data: [row1, row2], error: null }),
+      );
+
+      const result = await getNotificationsCursor('u1', null, 1);
+      const decoded = decodeCursor(result.data?.nextCursor ?? null);
+      expect(decoded).not.toBeNull();
+      expect(decoded?.created_at).toBe(SHARED_TS);
+      expect(decoded?.id).toBe(row1.id);
+    });
+
+    it('second page contains the remaining row and no further cursor', async () => {
+      // First page: returns 2 rows → hasMore = true
+      mockFrom.mockImplementationOnce((_: string) =>
+        chain({ data: [row1, row2], error: null }),
+      );
+      const page1 = await getNotificationsCursor('u1', null, 1);
+      const cursor = page1.data?.nextCursor!;
+
+      // Second page: returns only row2 → hasMore = false
+      mockFrom.mockImplementationOnce((_: string) =>
+        chain({ data: [row2], error: null }),
+      );
+      const page2 = await getNotificationsCursor('u1', cursor, 1);
+
+      expect(page2.success).toBe(true);
+      expect(page2.data?.data).toHaveLength(1);
+      expect(page2.data?.data[0].id).toBe(row2.id);
+      expect(page2.data?.nextCursor).toBeNull();
+    });
+
+    it('returns error on DB failure', async () => {
+      mockFrom.mockImplementation((_: string) =>
+        chain({ data: null, error: { message: 'DB error' } }),
+      );
+      const result = await getNotificationsCursor('u1');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('DB error');
     });
   });
 });

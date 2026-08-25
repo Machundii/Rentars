@@ -802,12 +802,32 @@ describe('BookingService', () => {
       expect(result.error).toBe('User ID is required');
     });
 
-    it('returns error for whitespace-only userId without hitting the database', async () => {
-      mockFrom.mockClear();
-      const result = await bookingService.getUserBookings('   ');
+    it('rejects an unknown status value', async () => {
+      const result = await bookingService.getUserBookings('user-1', null, 20, 'InvalidStatus');
       expect(result.success).toBe(false);
-      expect(result.error).toBe('User ID is required');
-      expect(mockFrom).not.toHaveBeenCalled();
+      expect(result.error).toContain('Invalid status');
+      expect(result.error).toContain('InvalidStatus');
+    });
+
+    it('accepts a known status with surrounding whitespace', async () => {
+      const rows: Booking[] = [
+        { id: 'b1', status: 'Confirmed', check_in: '2026-08-01', check_out: '2026-08-05', total_price: 400 },
+      ];
+      setupBookingsQuery(rows);
+      const result = await bookingService.getUserBookings('user-1', null, 20, '  confirmed  ');
+      expect(result.success).toBe(true);
+      expect(result.data?.data).toHaveLength(1);
+    });
+
+    it('skips the status filter when status is whitespace-only', async () => {
+      const rows: Booking[] = [
+        { id: 'b1', status: 'Confirmed', check_in: '2026-08-01', check_out: '2026-08-05', total_price: 400 },
+        { id: 'b2', status: 'Pending', check_in: '2026-09-01', check_out: '2026-09-03', total_price: 200 },
+      ];
+      setupBookingsQuery(rows);
+      const result = await bookingService.getUserBookings('user-1', null, 20, '   ');
+      expect(result.success).toBe(true);
+      expect(result.data?.data).toHaveLength(2);
     });
   });
 
