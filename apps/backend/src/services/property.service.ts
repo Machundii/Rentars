@@ -667,7 +667,7 @@ export interface AdvancedSearchFilters extends PropertySearchFilters {
   checkIn?: string;
   checkOut?: string;
   guests?: number;
-  sortBy?: 'price_asc' | 'price_desc' | 'distance' | 'rating' | 'newest';
+  sortBy?: 'price_asc' | 'price_desc' | 'distance' | 'rating' | 'newest' | 'relevance';
   page?: number;
   limit?: number;
 }
@@ -846,6 +846,7 @@ export async function advancedSearch(
         .order('average_rating', { ascending: false, nullsFirst: false })
         .order('review_count', { ascending: false, nullsFirst: false });
       break;
+    case 'relevance':
     case 'distance':
     case 'newest':
     default:
@@ -931,6 +932,37 @@ export async function advancedSearch(
 
     if (cacheKey) await cache.set(cacheKey, pageResult, 60);
     return { success: true, data: pageResult };
+  }
+
+  // ── 4b. Post-query: relevance sort using weighted field scoring ───────────
+  // Mirrors the tsvector weights (A=title, B=city, C=description, D=amenities)
+  // so results match what ts_rank_cd would return for the same query.
+  if (sortBy === 'relevance' && filters.query && properties.length > 0) {
+    const terms = filters.query
+      .toLowerCase()
+      .split(/\s+/)
+      .map((t) => t.replace(/[^a-z0-9_-]/g, ''))
+      .filter(Boolean);
+
+    if (terms.length > 0) {
+      const score = (p: Property): number => {
+        let s = 0;
+        const title = (p.title ?? '').toLowerCase();
+        const city = (p.city ?? '').toLowerCase();
+        const desc = (p.description ?? '').toLowerCase();
+        const amenities = (p.amenities ?? []).join(' ').toLowerCase();
+
+        for (const t of terms) {
+          if (title.includes(t)) s += 4;   // weight A
+          if (city.includes(t)) s += 3;    // weight B
+          if (desc.includes(t)) s += 2;    // weight C
+          if (amenities.includes(t)) s += 1; // weight D
+        }
+        return s;
+      };
+
+      properties.sort((a, b) => score(b) - score(a));
+    }
   }
 
   // ── 5. Map to SearchResult ─────────────────────────────────────────────────

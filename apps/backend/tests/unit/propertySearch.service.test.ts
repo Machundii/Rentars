@@ -9,7 +9,7 @@ const mockSupabase = { rpc: mockRpc, from: mockFrom };
 const supabaseMod = await import('../../src/config/supabase.js');
 (supabaseMod as any).supabase = mockSupabase;
 
-import { searchPropertiesNearby } from '../../src/services/propertySearch.service.js';
+import { searchPropertiesNearby, searchPropertiesByQuery } from '../../src/services/propertySearch.service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -94,5 +94,87 @@ describe('searchPropertiesNearby', () => {
       lng: 2.35,
       radius_km: 25,
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('searchPropertiesByQuery', () => {
+  beforeEach(() => {
+    mockRpc.mockClear();
+  });
+
+  it('returns empty array for empty query', async () => {
+    const result = await searchPropertiesByQuery('');
+
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(0);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it('calls the search_properties_ranked rpc with correct params', async () => {
+    mockRpc.mockImplementation(async () => ({ data: [], error: null }));
+
+    await searchPropertiesByQuery('beach house');
+
+    expect(mockRpc).toHaveBeenCalledWith('search_properties_ranked', {
+      search_query: 'beach house',
+      result_limit: 50,
+      result_offset: 0,
+    });
+  });
+
+  it('returns properties ordered by rank from rpc', async () => {
+    const ranked = [
+      { id: 'p1', title: 'Beach House Miami', city: 'Miami', rank: 0.8 },
+      { id: 'p2', title: 'Cozy Cottage', city: 'Miami', description: 'Near the beach house', rank: 0.3 },
+    ];
+    mockRpc.mockImplementation(async () => ({ data: ranked, error: null }));
+
+    const result = await searchPropertiesByQuery('beach house');
+
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(2);
+    expect(result.data![0].id).toBe('p1');
+    expect(result.data![1].id).toBe('p2');
+  });
+
+  it('title match outranks description-only match', async () => {
+    // The RPC returns results ordered by ts_rank_cd DESC.
+    // Title match (weight A) should have higher rank than description-only match (weight C).
+    const ranked = [
+      { id: 'title-match', title: 'Beach House', city: 'Miami', rank: 0.9 },
+      { id: 'desc-match', title: 'Cozy Cottage', city: 'Miami', description: 'A quiet beach house retreat', rank: 0.2 },
+    ];
+    mockRpc.mockImplementation(async () => ({ data: ranked, error: null }));
+
+    const result = await searchPropertiesByQuery('beach house');
+
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(2);
+    // Title match should appear first (higher rank from ts_rank_cd)
+    expect(result.data![0].id).toBe('title-match');
+    expect(result.data![1].id).toBe('desc-match');
+  });
+
+  it('forwards rpc error as failure', async () => {
+    mockRpc.mockImplementation(async () => ({
+      data: null,
+      error: { message: 'RPC function not found' },
+    }));
+
+    const result = await searchPropertiesByQuery('test');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('RPC function not found');
+  });
+
+  it('returns empty array when no results match', async () => {
+    mockRpc.mockImplementation(async () => ({ data: [], error: null }));
+
+    const result = await searchPropertiesByQuery('xyznonexistent');
+
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(0);
   });
 });
