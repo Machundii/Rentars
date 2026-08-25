@@ -234,9 +234,20 @@ export class BookingService {
       .limit(pageSize + 1);
 
     if (status) {
-      // Normalise to title-case to match DB values (Pending, Confirmed, etc.)
-      const normalised = status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
-      query = query.eq('status', normalised);
+      const KNOWN_STATUSES = ['Pending', 'Confirmed', 'Cancelled', 'Completed', 'Disputed'] as const;
+      const trimmedStatus = status.trim();
+      if (trimmedStatus) {
+        const normalised = KNOWN_STATUSES.find(
+          (s) => s.toLowerCase() === trimmedStatus.toLowerCase(),
+        );
+        if (!normalised) {
+          return {
+            success: false,
+            error: `Invalid status '${trimmedStatus}'. Must be one of: ${KNOWN_STATUSES.join(', ')}`,
+          };
+        }
+        query = query.eq('status', normalised);
+      }
     }
 
     if (decoded && sort === 'created') {
