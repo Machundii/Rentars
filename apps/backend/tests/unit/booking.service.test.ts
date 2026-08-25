@@ -801,6 +801,14 @@ describe('BookingService', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBe('User ID is required');
     });
+
+    it('returns error for whitespace-only userId without hitting the database', async () => {
+      mockFrom.mockClear();
+      const result = await bookingService.getUserBookings('   ');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('User ID is required');
+      expect(mockFrom).not.toHaveBeenCalled();
+    });
   });
 
   // ── requestModification ─────────────────────────────────────────────────────
