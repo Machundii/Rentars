@@ -79,7 +79,14 @@ export const Modal = React.forwardRef<HTMLDivElement, ModalProps>(
 
     React.useEffect(() => {
       if (!open && previousActiveElement.current) {
-        previousActiveElement.current.focus();
+        // The trigger element may have been removed from the DOM between
+        // the time the modal opened and when it closed. Calling focus() on
+        // a detached element can throw or leave focus in an undefined state,
+        // so we guard with isConnected before attempting restoration.
+        if (previousActiveElement.current.isConnected) {
+          previousActiveElement.current.focus();
+        }
+        previousActiveElement.current = null;
       }
     }, [open]);
 

@@ -114,4 +114,83 @@ describe('Modal', () => {
     fireEvent.click(closeButton);
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('restores focus to the trigger element when the modal closes normally', async () => {
+    const trigger = document.createElement('button');
+    trigger.textContent = 'Open Modal';
+    document.body.appendChild(trigger);
+    trigger.focus();
+    expect(document.activeElement).toBe(trigger);
+
+    const { rerender } = render(
+      <Modal open={true} onOpenChange={vi.fn()} title="Focus Test">
+        <ModalContent>Content</ModalContent>
+      </Modal>
+    );
+
+    // Close the modal
+    rerender(
+      <Modal open={false} onOpenChange={vi.fn()} title="Focus Test">
+        <ModalContent>Content</ModalContent>
+      </Modal>
+    );
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    document.body.removeChild(trigger);
+  });
+
+  it('does not throw and does not restore focus when the trigger has been removed before close', async () => {
+    const trigger = document.createElement('button');
+    trigger.textContent = 'Open Modal';
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    const { rerender } = render(
+      <Modal open={true} onOpenChange={vi.fn()} title="Removed Trigger Test">
+        <ModalContent>Content</ModalContent>
+      </Modal>
+    );
+
+    // Remove the trigger from the DOM before closing — simulates a
+    // dynamically rendered trigger that unmounts while the modal is open
+    document.body.removeChild(trigger);
+
+    // Closing must not throw
+    expect(() => {
+      rerender(
+        <Modal open={false} onOpenChange={vi.fn()} title="Removed Trigger Test">
+          <ModalContent>Content</ModalContent>
+        </Modal>
+      );
+    }).not.toThrow();
+
+    // Focus should not have moved to the detached element
+    await waitFor(() => {
+      expect(document.activeElement).not.toBe(trigger);
+    });
+  });
+
+  it('escape and backdrop close behaviour remain unchanged after the focus-guard change', async () => {
+    const onOpenChange = vi.fn();
+    render(
+      <Modal open={true} onOpenChange={onOpenChange} title="Behaviour Test">
+        <ModalContent>Content</ModalContent>
+      </Modal>
+    );
+
+    // Escape closes
+    const dialog = screen.getByRole('dialog');
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+
+    onOpenChange.mockClear();
+
+    // Backdrop closes
+    const backdrop = document.querySelector('[role="presentation"]');
+    if (backdrop) fireEvent.click(backdrop);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
 });
