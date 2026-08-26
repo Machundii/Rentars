@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface DraftRestoreDialogProps {
   hasDraft: boolean;
   onResume: () => void;
   onDiscard: () => void;
+  /** Called when the dialog is dismissed without an explicit action (backdrop
+   *  click, Escape key). Draft is NOT removed in this case. */
+  onDismiss?: () => void;
   isOpen?: boolean;
 }
 
@@ -13,20 +16,44 @@ export default function DraftRestoreDialog({
   hasDraft,
   onResume,
   onDiscard,
+  onDismiss,
   isOpen = true,
 }: DraftRestoreDialogProps) {
   const [mounted, setMounted] = useState(false);
+  const discardButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  // Handle Escape key — dismiss only, do NOT discard the draft
+  useEffect(() => {
+    if (!mounted || !hasDraft || !isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onDismiss?.();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [mounted, hasDraft, isOpen, onDismiss]);
+
   if (!mounted || !hasDraft || !isOpen) {
     return null;
   }
 
+  const handleBackdropClick = () => {
+    // Backdrop click dismisses the dialog without discarding the draft
+    onDismiss?.();
+  };
+
   return (
     <div
+      role="presentation"
+      onClick={handleBackdropClick}
       style={{
         position: 'fixed',
         top: 0,
@@ -41,6 +68,10 @@ export default function DraftRestoreDialog({
       }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="draft-dialog-title"
+        onClick={(e) => e.stopPropagation()}
         style={{
           backgroundColor: 'white',
           borderRadius: '8px',
@@ -49,7 +80,10 @@ export default function DraftRestoreDialog({
           boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
         }}
       >
-        <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px', marginTop: 0 }}>
+        <h2
+          id="draft-dialog-title"
+          style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px', marginTop: 0 }}
+        >
           Resume Draft?
         </h2>
         <p style={{ marginBottom: '24px', color: '#666', margin: '0 0 24px 0' }}>
@@ -57,6 +91,7 @@ export default function DraftRestoreDialog({
         </p>
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
           <button
+            ref={discardButtonRef}
             onClick={onDiscard}
             style={{
               padding: '8px 16px',

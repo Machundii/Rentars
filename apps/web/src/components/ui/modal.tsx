@@ -26,16 +26,21 @@ export const Modal = React.forwardRef<HTMLDivElement, ModalProps>(
       const dialogElement = dialogRef.current;
       if (!dialogElement) return;
 
-      const focusableElements = dialogElement.querySelectorAll(
+      const focusableElements = dialogElement.querySelectorAll<HTMLElement>(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
       );
 
       const firstElement = focusableElements[0] as HTMLElement;
       const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
 
-      // Focus the first focusable element
+      // Focus the first focusable element, or the dialog itself as a fallback
       if (firstElement) {
         firstElement.focus();
+      } else {
+        // No focusable children — focus the dialog container so keyboard users
+        // are not left behind the modal context.
+        dialogElement.setAttribute('tabindex', '-1');
+        dialogElement.focus();
       }
 
       // Handle keyboard events

@@ -27,8 +27,10 @@ const AMENITIES = [
 export default function AmenitiesStep({ formData, setFormData, errors }: AmenitiesStepProps) {
   const toggleAmenity = (amenity: string) => {
     const current = formData.amenities || [];
-    const updated = current.includes(amenity)
-      ? current.filter((a) => a !== amenity)
+    const normalized = amenity.trim().toLowerCase();
+    const alreadySelected = current.some((a) => a.trim().toLowerCase() === normalized);
+    const updated = alreadySelected
+      ? current.filter((a) => a.trim().toLowerCase() !== normalized)
       : [...current, amenity];
     setFormData({ ...formData, amenities: updated });
   };
