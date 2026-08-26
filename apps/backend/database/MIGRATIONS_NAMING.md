@@ -8,10 +8,18 @@ production).
 | Prefix | Files |
 |--------|-------|
 | `00002` | `00002_storage_and_rls.sql`, `00002_add_booking_blockchain_fields.sql` |
-| `00012` | `00012_add_booking_dispute_status.sql`, `00012_create_property_images_table.sql` |
 | `00013` | `00013_add_property_search_vector.sql`, `00013_update_availability_ranges.sql` |
-| `00014` | `00014_add_dynamic_pricing.sql`, `00014_search_analytics_and_geolocation.sql` |
+| `00014` | `00014_add_dynamic_pricing.sql`, `00014_pricing_and_settings.sql`, `00014_search_analytics_and_geolocation.sql` |
 | `00017` | `00017_add_amenities_gin_index.sql`, `00017_add_email_verification.sql`, `00017_add_geospatial_gist_index.sql`, `00017_add_guest_count_to_bookings.sql`, `00017_add_password_reset_tokens.sql` |
+| `00020` | `00020_add_missing_indexes.sql`, `00020_add_property_views.sql`, `00020_add_review_eligibility_constraints.sql` |
+| `00021` | `00021_add_booking_reminders.sql`, `00021_add_rls_wishlists_notifications.sql` |
+| `00028` | `00028_add_property_type_and_bathrooms.sql`, `00028_add_role_to_users.sql`, `00028_booking_lifecycle_disputed_complete.sql`, `00028_create_audit_and_payments.sql`, `00028_create_booking_status_history.sql` |
+| `00032` | `00032_add_cancellation_refund_fields.sql`, `00032_add_soft_delete_to_properties.sql`, `00032_add_thumbnail_url_to_property_images.sql`, `00032_create_idempotency_keys_table.sql` |
+
+> **Note:** `00012_add_booking_dispute_status.sql` was previously a duplicate of
+> `00012_create_property_images_table.sql`. It has been renamed to
+> `00035_add_booking_dispute_status.sql` (the next unused prefix at the time of
+> resolution). The SQL contents are unchanged.
 
 ### Canonical application order for shared prefixes
 
@@ -22,9 +30,6 @@ Document this in your migration runner configuration.
 ```
 00002_add_booking_blockchain_fields.sql   ← apply first (schema additions)
 00002_storage_and_rls.sql                 ← apply second (RLS on existing tables)
-
-00012_create_property_images_table.sql    ← apply first (new table)
-00012_add_booking_dispute_status.sql      ← apply second (column addition)
 
 00013_add_property_search_vector.sql      ← apply first (new column + index)
 00013_update_availability_ranges.sql      ← apply second (column additions)
@@ -46,8 +51,8 @@ Document this in your migration runner configuration.
 ### Rule 1 — Strictly incrementing 5-digit prefix
 
 Every new migration file **must** use the next available prefix after the highest
-existing one. As of the writing of this document that is `00022` (00020 and 00021
-were added as part of the index and RLS-policy work).
+existing one. As of writing this document the highest prefix is `00035`
+(`00035_add_booking_dispute_status.sql`); the next prefix to use is `00036`.
 
 Format:
 ```
