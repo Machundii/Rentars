@@ -44,9 +44,19 @@ export default function PricingStep({ formData, setFormData, errors }: PricingSt
               type="number"
               min="0"
               value={formData.bedrooms ?? ''}
-              onChange={(e) =>
-                setFormData({ ...formData, bedrooms: parseInt(e.target.value, 10) || 0 })
-              }
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw === '') {
+                  setFormData({ ...formData, bedrooms: undefined as unknown as number });
+                  return;
+                }
+                const parsed = parseInt(raw, 10);
+                if (!Number.isNaN(parsed)) {
+                  setFormData({ ...formData, bedrooms: parsed });
+                }
+                // non-numeric / malformed: leave state unchanged so the schema
+                // can surface an appropriate validation message
+              }}
               placeholder="0"
               className={formStyles.input}
             />
@@ -62,9 +72,19 @@ export default function PricingStep({ formData, setFormData, errors }: PricingSt
               type="number"
               min="0"
               value={formData.bathrooms ?? ''}
-              onChange={(e) =>
-                setFormData({ ...formData, bathrooms: parseInt(e.target.value, 10) || 0 })
-              }
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw === '') {
+                  setFormData({ ...formData, bathrooms: undefined as unknown as number });
+                  return;
+                }
+                const parsed = parseInt(raw, 10);
+                if (!Number.isNaN(parsed)) {
+                  setFormData({ ...formData, bathrooms: parsed });
+                }
+                // non-numeric / malformed: leave state unchanged so the schema
+                // can surface an appropriate validation message
+              }}
               placeholder="0"
               className={formStyles.input}
             />
