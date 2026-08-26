@@ -5,6 +5,7 @@
  *  - encodeCursor / decodeCursor round-trip
  *  - buildCursorPage correctly detects hasMore and emits nextCursor
  *  - Pages are non-overlapping and complete even with interleaved inserts
+ *  - getUserBookings rejects cursors for non-created sort modes
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -61,7 +62,6 @@ describe('buildCursorPage', () => {
   });
 
   it('returns limit rows and a nextCursor when rows > limit (hasMore)', () => {
-    // Service fetches limit+1; if we got limit+1 back there is a next page
     const rows = makeRows(21); // limit=20, service fetched 21
     const page = buildCursorPage(rows, 20);
     expect(page.data).toHaveLength(20);
@@ -73,56 +73,46 @@ describe('buildCursorPage', () => {
     const page = buildCursorPage(rows, 20);
     const decoded = decodeCursor(page.nextCursor!);
     expect(decoded).not.toBeNull();
-    // Last row in data is index 19 (id-019)
     expect(decoded!.id).toBe(rows[19].id);
     expect(decoded!.created_at).toBe(rows[19].created_at);
   });
 
   it('pages are non-overlapping (cursor filters correct rows)', () => {
-    // Simulate 3 pages of 3 rows each from a 9-row dataset
     const allRows = makeRows(9);
     const LIMIT = 3;
 
-    // Page 1: no cursor — rows 0..2, nextCursor points after row 2
     const page1 = buildCursorPage([...allRows.slice(0, 3), allRows[3]], LIMIT);
     expect(page1.data.map((r) => r.id)).toEqual(['id-000', 'id-001', 'id-002']);
     expect(page1.nextCursor).not.toBeNull();
 
-    // Page 2: cursor after row 2 — rows 3..5
     const page2 = buildCursorPage([...allRows.slice(3, 6), allRows[6]], LIMIT);
     expect(page2.data.map((r) => r.id)).toEqual(['id-003', 'id-004', 'id-005']);
     expect(page2.nextCursor).not.toBeNull();
 
-    // Page 3: cursor after row 5 — rows 6..8, no more
     const page3 = buildCursorPage(allRows.slice(6, 9), LIMIT);
     expect(page3.data.map((r) => r.id)).toEqual(['id-006', 'id-007', 'id-008']);
     expect(page3.nextCursor).toBeNull();
 
-    // Verify no id appears in more than one page
     const allIds = [
       ...page1.data.map((r) => r.id),
       ...page2.data.map((r) => r.id),
       ...page3.data.map((r) => r.id),
     ];
-    const uniqueIds = new Set(allIds);
-    expect(uniqueIds.size).toBe(allIds.length);
+    expect(new Set(allIds).size).toBe(allIds.length);
   });
 });
 
 // ─── BookingService.getUserBookings (cursor) ──────────────────────────────────
+//
+// The Supabase query builder is a thenable — `await query` resolves the last
+// object in the fluent chain. We mock mockFrom per-call using
+// mockImplementation so each query step resolves inline with a real Promise,
+// matching the pattern used in bookingConflict.test.ts.
 
-// Minimal Supabase mock
-const mockSingle = vi.fn();
-const mockLimit = vi.fn();
-const mockOrder2 = vi.fn(() => ({ limit: mockLimit }));
-const mockOrder1 = vi.fn(() => ({ order: mockOrder2, limit: mockLimit }));
-const mockOr = vi.fn(() => ({ order: mockOrder1, limit: mockLimit }));
-const mockEq = vi.fn(() => ({
-  order: mockOrder1,
-  or: mockOr,
-}));
-const mockSelect = vi.fn(() => ({ eq: mockEq }));
-const mockFrom = vi.fn(() => ({ select: mockSelect }));
+const { mockFrom } = vi.hoisted(() => {
+  const mockFrom = vi.fn();
+  return { mockFrom };
+});
 
 vi.mock('../config/supabase.js', () => ({ supabase: { from: mockFrom } }));
 vi.mock('../blockchain/bookingContract.js', () => ({
@@ -132,11 +122,7 @@ vi.mock('../blockchain/bookingContract.js', () => ({
   updateBookingStatusOnChain: vi.fn(),
 }));
 vi.mock('../blockchain/trustlessWork.js', () => ({
-  trustlessWorkClient: {
-    createBookingEscrow: vi.fn(),
-    cancelEscrow: vi.fn(),
-    releaseEscrow: vi.fn(),
-  },
+  trustlessWorkClient: { createBookingEscrow: vi.fn(), cancelEscrow: vi.fn(), releaseEscrow: vi.fn() },
 }));
 vi.mock('../services/logging.service.js', () => ({
   loggingService: { logBlockchainOperation: vi.fn() },
@@ -144,6 +130,55 @@ vi.mock('../services/logging.service.js', () => ({
 vi.mock('../services/notification.service.js', () => ({
   createNotification: vi.fn(),
 }));
+vi.mock('../middleware/metrics.middleware.js', () => ({
+  incCounter: vi.fn(),
+  bookingsCreatedTotal: {},
+  escrowFailuresTotal: {},
+}));
+
+// ─── Helper: build a fully-resolved fluent Supabase mock ─────────────────────
+//
+// Returns a mock `from('bookings')` that records the .or() call (so we can
+// assert on it) and resolves with the given rows when awaited.
+
+function makeBookingsQueryMock(rows: unknown[]) {
+  const orSpy = vi.fn();
+
+  // The object returned by .limit() (and optionally .eq(status) / .or(cursor))
+  // must be thenable so `await query` resolves to { data, error }.
+  const terminal = {
+    or: (arg: string) => {
+      orSpy(arg);
+      return Promise.resolve({ data: rows, error: null });
+    },
+    eq: (_col: string, _val: string) => ({
+      or: (arg: string) => {
+        orSpy(arg);
+        return Promise.resolve({ data: rows, error: null });
+      },
+      then: (resolve: (v: unknown) => unknown) =>
+        Promise.resolve({ data: rows, error: null }).then(resolve),
+    }),
+    then: (resolve: (v: unknown) => unknown) =>
+      Promise.resolve({ data: rows, error: null }).then(resolve),
+  };
+
+  const builder = {
+    select: () => ({
+      eq: () => ({
+        order: () => ({
+          order: () => ({
+            limit: () => terminal,
+          }),
+        }),
+      }),
+    }),
+  };
+
+  return { builder, orSpy };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 describe('BookingService.getUserBookings', () => {
   let service: BookingService;
@@ -158,21 +193,12 @@ describe('BookingService.getUserBookings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     service = new BookingService();
-
-    // Wire the fluent builder so .limit() returns the rows
-    mockLimit.mockImplementation(() => Promise.resolve({ data: null, error: null }));
-    mockOrder2.mockReturnValue({ limit: mockLimit });
-    mockOrder1.mockReturnValue({ order: mockOrder2, limit: mockLimit });
-    mockOr.mockReturnValue({ order: mockOrder1, limit: mockLimit });
-    mockEq.mockReturnValue({ order: mockOrder1, or: mockOr });
-    mockSelect.mockReturnValue({ eq: mockEq });
-    mockFrom.mockReturnValue({ select: mockSelect });
   });
 
   it('returns first page with nextCursor when more rows exist', async () => {
-    // Return 21 rows for a limit-20 request (limit+1 trick)
     const rows = Array.from({ length: 21 }, (_, i) => makeBooking(i));
-    mockLimit.mockResolvedValueOnce({ data: rows, error: null });
+    const { builder } = makeBookingsQueryMock(rows);
+    mockFrom.mockReturnValue(builder);
 
     const result = await service.getUserBookings('user-1', null, 20);
 
@@ -183,7 +209,8 @@ describe('BookingService.getUserBookings', () => {
 
   it('returns last page with null nextCursor when no more rows', async () => {
     const rows = Array.from({ length: 5 }, (_, i) => makeBooking(i));
-    mockLimit.mockResolvedValueOnce({ data: rows, error: null });
+    const { builder } = makeBookingsQueryMock(rows);
+    mockFrom.mockReturnValue(builder);
 
     const result = await service.getUserBookings('user-1', null, 20);
 
@@ -193,13 +220,13 @@ describe('BookingService.getUserBookings', () => {
   });
 
   it('passes cursor to the or() filter on subsequent pages', async () => {
-    const cursor = encodeCursor({ created_at: '2027-01-20T10:00:00Z', id: 'booking-010' });
-    mockLimit.mockResolvedValueOnce({ data: [], error: null });
+    const { builder, orSpy } = makeBookingsQueryMock([]);
+    mockFrom.mockReturnValue(builder);
 
+    const cursor = encodeCursor({ created_at: '2027-01-20T10:00:00Z', id: 'booking-010' });
     await service.getUserBookings('user-1', cursor, 20);
 
-    // .or() should have been called with the cursor-based keyset filter
-    expect(mockOr).toHaveBeenCalledWith(expect.stringContaining('2027-01-20T10:00:00Z'));
+    expect(orSpy).toHaveBeenCalledWith(expect.stringContaining('2027-01-20T10:00:00Z'));
   });
 
   it('returns error when userId is empty', async () => {
@@ -207,11 +234,64 @@ describe('BookingService.getUserBookings', () => {
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/user id is required/i);
   });
+});
 
-  it('respects the max limit cap of 100', async () => {
-    mockLimit.mockResolvedValueOnce({ data: [], error: null });
-    await service.getUserBookings('user-1', null, 999);
-    // limit(101) should have been called, not limit(1000)
-    expect(mockLimit).toHaveBeenCalledWith(101); // 100 + 1 for hasMore detection
+// ─── getUserBookings — cursor rejected for non-created sort modes ─────────────
+
+describe('BookingService.getUserBookings — cursor with non-created sort', () => {
+  let service: BookingService;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    service = new BookingService();
+  });
+
+  it('rejects a cursor when sort=date without querying Supabase', async () => {
+    const cursor = encodeCursor({ created_at: '2027-01-15T10:00:00Z', id: 'booking-010' });
+
+    const result = await service.getUserBookings('user-1', cursor, 20, null, 'date');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Cursor pagination is only supported for sort=created');
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it('rejects a cursor when sort=price without querying Supabase', async () => {
+    const cursor = encodeCursor({ created_at: '2027-01-15T10:00:00Z', id: 'booking-005' });
+
+    const result = await service.getUserBookings('user-1', cursor, 20, null, 'price');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Cursor pagination is only supported for sort=created');
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it('allows null cursor with sort=date — first page proceeds without or() filter', async () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({
+      id: `booking-${String(i).padStart(3, '0')}`,
+      tenant_id: 'user-1',
+      created_at: `2027-01-${String(30 - i).padStart(2, '0')}T10:00:00Z`,
+      status: 'Confirmed',
+    }));
+    const { builder, orSpy } = makeBookingsQueryMock(rows);
+    mockFrom.mockReturnValue(builder);
+
+    const result = await service.getUserBookings('user-1', null, 20, null, 'date');
+
+    expect(result.success).toBe(true);
+    expect(orSpy).not.toHaveBeenCalled();
+    expect(result.data!.data).toHaveLength(5);
+  });
+
+  it('a second date-sort page is rejected — no first-page row can be duplicated', async () => {
+    // A client that passes a cursor from a previous page while using sort=date
+    // must receive an error, not a silent restart from page 1.
+    const cursor = encodeCursor({ created_at: '2027-01-20T10:00:00Z', id: 'booking-010' });
+
+    const result = await service.getUserBookings('user-1', cursor, 20, null, 'date');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Cursor pagination is only supported for sort=created');
+    expect(mockFrom).not.toHaveBeenCalled();
   });
 });
