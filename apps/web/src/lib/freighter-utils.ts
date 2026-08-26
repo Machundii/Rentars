@@ -160,7 +160,7 @@ export async function signWithFreighter(
       );
     }
 
-    if (!result.signedTxXdr) {
+    if (!result.signedTxXdr || !result.signedTxXdr.trim()) {
       throw new FreighterError('No signed transaction returned', 'SIGN_FAILED');
     }
 

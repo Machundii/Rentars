@@ -133,5 +133,67 @@ describe('freighter-utils', () => {
       const signedXdr = await signWithFreighter('xdr123', 'testnet');
       expect(signedXdr).toBe('signed_xdr_123');
     });
+
+    it('should fail locally with SIGN_FAILED when signedTxXdr is missing (undefined)', async () => {
+      vi.mocked(freighterApi.getNetwork).mockResolvedValue({
+        network: 'TESTNET',
+      } as any);
+      vi.mocked(freighterApi.signTransaction).mockResolvedValue({
+        signedTxXdr: undefined,
+      } as any);
+
+      await expect(signWithFreighter('xdr123', 'testnet')).rejects.toThrow(FreighterError);
+      await expect(signWithFreighter('xdr123', 'testnet')).rejects.toMatchObject({
+        code: 'SIGN_FAILED',
+        message: 'No signed transaction returned',
+      });
+    });
+
+    it('should fail locally with SIGN_FAILED when signedTxXdr is an empty string', async () => {
+      vi.mocked(freighterApi.getNetwork).mockResolvedValue({
+        network: 'TESTNET',
+      } as any);
+      vi.mocked(freighterApi.signTransaction).mockResolvedValue({
+        signedTxXdr: '',
+      } as any);
+
+      await expect(signWithFreighter('xdr123', 'testnet')).rejects.toThrow(FreighterError);
+      await expect(signWithFreighter('xdr123', 'testnet')).rejects.toMatchObject({
+        code: 'SIGN_FAILED',
+        message: 'No signed transaction returned',
+      });
+    });
+
+    it('should fail locally with SIGN_FAILED when signedTxXdr is a whitespace-only string', async () => {
+      vi.mocked(freighterApi.getNetwork).mockResolvedValue({
+        network: 'TESTNET',
+      } as any);
+      vi.mocked(freighterApi.signTransaction).mockResolvedValue({
+        signedTxXdr: '   ',
+      } as any);
+
+      await expect(signWithFreighter('xdr123', 'testnet')).rejects.toThrow(FreighterError);
+      await expect(signWithFreighter('xdr123', 'testnet')).rejects.toMatchObject({
+        code: 'SIGN_FAILED',
+        message: 'No signed transaction returned',
+      });
+    });
+
+    it('should return a valid XDR string unchanged without attempting submission', async () => {
+      const validXdr = 'AAAAAgAAAAA...realXDRcontent==';
+      vi.mocked(freighterApi.getNetwork).mockResolvedValue({
+        network: 'TESTNET',
+      } as any);
+      vi.mocked(freighterApi.signTransaction).mockResolvedValue({
+        signedTxXdr: validXdr,
+      } as any);
+
+      const result = await signWithFreighter('xdr123', 'testnet');
+
+      // Valid XDR is returned exactly as-is
+      expect(result).toBe(validXdr);
+      // signTransaction was called once — no submission path invoked
+      expect(freighterApi.signTransaction).toHaveBeenCalledTimes(1);
+    });
   });
 });
