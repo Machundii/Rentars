@@ -90,7 +90,12 @@ export async function reportReview(req: AuthRequest, res: Response): Promise<voi
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
-  const result = await flagReview(req.params.id, userId);
+  const { reason } = req.body;
+  if (!reason || typeof reason !== 'string' || !reason.trim()) {
+    res.status(400).json({ error: 'Flag reason is required' });
+    return;
+  }
+  const result = await flagReview(req.params.id, userId, reason);
   if (!result.success) {
     res.status(400).json({ error: result.error });
     return;

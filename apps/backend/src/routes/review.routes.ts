@@ -14,7 +14,7 @@ import {
   rejectReviewHandler,
 } from '../controllers/review.controller.js';
 import { validateBody } from '../validators/booking.validator.js';
-import { createReviewSchema } from '../validators/review.validator.js';
+import { createReviewSchema, flagReviewSchema } from '../validators/review.validator.js';
 
 const router = Router();
 
@@ -34,7 +34,7 @@ router.get('/user/:id/average', getUserAverageRating);
 router.post('/:id/response', authenticate, respondToReview);
 
 // POST /api/reviews/:id/flag — report a review for moderation
-router.post('/:id/flag', authenticate, reportReview);
+router.post('/:id/flag', authenticate, validateBody(flagReviewSchema), reportReview);
 
 // GET /api/reviews/moderation/flagged — list flagged reviews (admin)
 router.get('/moderation/flagged', authenticate, requireRole('admin'), listFlaggedReviews);

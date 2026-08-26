@@ -17,6 +17,7 @@ export interface Review {
   host_response?: string;
   host_response_at?: string;
   is_flagged?: boolean;
+  flag_reason?: string;
   is_approved?: boolean;
   moderation_status?: ModerationStatus;
   moderation_reason?: string;
@@ -218,10 +219,16 @@ export async function addHostResponse(
 export async function flagReview(
   reviewId: string,
   reporterId: string,
+  reason: string,
 ): Promise<ServiceResponse<void>> {
+  const trimmedReason = reason?.trim();
+  if (!trimmedReason) {
+    return { success: false, error: 'Flag reason is required' };
+  }
+
   const { error } = await supabase
     .from('reviews')
-    .update({ is_flagged: true })
+    .update({ is_flagged: true, flag_reason: trimmedReason })
     .eq('id', reviewId);
 
   if (error) return { success: false, error: error.message };
