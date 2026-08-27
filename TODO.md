@@ -12,6 +12,7 @@
 - [ ] Frontend: wire dispute raise endpoint call from modal
 - [ ] UI placement: show DisputeButton on active bookings (align with existing booking status logic)
 - [x] Update `ARCHITECTURE.md` with dispute resolution process
+300-Line TODO — PropertyMapPin Accessibility Fix
 
 Absolutely. Below is a 450-item TODO roadmap you can use in VS Code to build a proper web app from idea → development → testing → deployment → maintenance.
 
