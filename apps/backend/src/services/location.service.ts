@@ -156,8 +156,14 @@ export class LocationService {
     lng: number,
     radius: number,
   ): Promise<ServiceResponse<PropertyWithDistance[]>> {
-    if (isNaN(lat) || isNaN(lng) || isNaN(radius)) {
+    if (!isFinite(lat) || !isFinite(lng) || isNaN(radius)) {
       return { success: false, error: 'Invalid latitude, longitude, or radius', statusCode: 400 };
+    }
+    if (lat < -90 || lat > 90) {
+      return { success: false, error: 'Latitude must be between -90 and 90', statusCode: 400 };
+    }
+    if (lng < -180 || lng > 180) {
+      return { success: false, error: 'Longitude must be between -180 and 180', statusCode: 400 };
     }
 
     if (radius <= 0) {

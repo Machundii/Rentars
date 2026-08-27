@@ -14,649 +14,969 @@
 - [x] Update `ARCHITECTURE.md` with dispute resolution process
 300-Line TODO — PropertyMapPin Accessibility Fix
 
-Phase 1 — Understand the Existing Component
+Absolutely. Below is a 450-item TODO roadmap you can use in VS Code to build a proper web app from idea → development → testing → deployment → maintenance.
 
-[ ] 001. Open the project in VS Code.
+1. Planning & Requirements
 
-[ ] 002. Locate PropertyMapPin.tsx.
+[ ] 001. Define the purpose of the web app.
 
-[ ] 003. Read the entire component before making changes.
+[ ] 002. Define the problem the app solves.
 
-[ ] 004. Identify the marker component being rendered.
+[ ] 003. Identify the target users.
 
-[ ] 005. Identify whether the marker is a button.
+[ ] 004. Define the primary user persona.
 
-[ ] 006. Identify whether the marker is a link.
+[ ] 005. Identify secondary user personas.
 
-[ ] 007. Identify whether the marker uses another interactive element.
+[ ] 006. Write the core value proposition.
 
-[ ] 008. Find the existing accessible label.
+[ ] 007. Define the minimum viable product (MVP).
 
-[ ] 009. Check whether aria-label is currently present.
+[ ] 008. List all required features.
 
-[ ] 010. Check whether aria-labelledby is currently present.
+[ ] 009. Separate essential features from optional features.
 
-[ ] 011. Check whether an accessible name comes from visible text.
+[ ] 010. Define the project's scope.
 
-[ ] 012. Identify the property object used by the component.
+[ ] 011. Identify project constraints.
 
-[ ] 013. Identify the property title field.
+[ ] 012. Define technical requirements.
 
-[ ] 014. Determine whether the title can be undefined.
+[ ] 013. Define functional requirements.
 
-[ ] 015. Determine whether the title can be null.
+[ ] 014. Define non-functional requirements.
 
-[ ] 016. Determine whether the title can be an empty string.
+[ ] 015. Identify security requirements.
 
-[ ] 017. Determine whether the title can contain whitespace only.
+[ ] 016. Identify performance requirements.
 
-[ ] 018. Check the property's TypeScript type.
+[ ] 017. Identify accessibility requirements.
 
-[ ] 019. Check how the marker receives property data.
+[ ] 018. Identify browser requirements.
 
-[ ] 020. Check whether multiple markers are rendered.
+[ ] 019. Identify mobile requirements.
 
-[ ] 021. Confirm every marker is interactive.
+[ ] 020. Identify desktop requirements.
 
-[ ] 022. Identify the marker click handler.
+[ ] 021. Define user roles.
 
-[ ] 023. Identify any navigation behavior.
+[ ] 022. Define permissions for each role.
 
-[ ] 024. Identify any selection behavior.
+[ ] 023. Map the main user journeys.
 
-[ ] 025. Identify any hover behavior.
+[ ] 024. Map the registration journey.
 
-[ ] 026. Identify any tooltip behavior.
+[ ] 025. Map the login journey.
 
-[ ] 027. Identify the visible property title.
+[ ] 026. Map the logout journey.
 
-[ ] 028. Identify the visible property price.
+[ ] 027. Map the main application workflow.
 
-[ ] 029. Confirm the price is not generated from the accessible label.
+[ ] 028. Identify possible edge cases.
 
-[ ] 030. Confirm the title display must remain unchanged.
+[ ] 029. Identify failure scenarios.
 
+[ ] 030. Define success criteria.
 
-Phase 2 — Understand Accessibility Requirements
 
-[ ] 031. Confirm that every interactive marker needs an accessible name.
+2. UI/UX Design
 
-[ ] 032. Confirm the accessible name must never be empty.
+[ ] 031. Create the project's design direction.
 
-[ ] 033. Confirm the accessible name must not be undefined.
+[ ] 032. Choose the primary color.
 
-[ ] 034. Confirm the accessible name must not be null.
+[ ] 033. Choose secondary colors.
 
-[ ] 035. Confirm the accessible name must not be whitespace-only.
+[ ] 034. Choose typography.
 
-[ ] 036. Confirm the property title should be preferred.
+[ ] 035. Define heading styles.
 
-[ ] 037. Define the fallback accessible label.
+[ ] 036. Define paragraph styles.
 
-[ ] 038. Keep the fallback concise.
+[ ] 037. Define button styles.
 
-[ ] 039. Use a meaningful generic label.
+[ ] 038. Define input styles.
 
-[ ] 040. Prefer a label such as Property location.
+[ ] 039. Define card styles.
 
-[ ] 041. Avoid exposing internal property IDs.
+[ ] 040. Define modal styles.
 
-[ ] 042. Avoid using technical identifiers as labels.
+[ ] 041. Define spacing rules.
 
-[ ] 043. Avoid using empty strings as fallbacks.
+[ ] 042. Define border-radius rules.
 
-[ ] 044. Avoid changing visible content.
+[ ] 043. Define shadows.
 
-[ ] 045. Avoid changing marker dimensions.
+[ ] 044. Define icon style.
 
-[ ] 046. Avoid changing marker styling.
+[ ] 045. Design the landing page.
 
-[ ] 047. Avoid changing marker positioning.
+[ ] 046. Design the navigation bar.
 
-[ ] 048. Avoid changing marker animation.
+[ ] 047. Design the footer.
 
-[ ] 049. Avoid changing click behavior.
+[ ] 048. Design the registration page.
 
-[ ] 050. Avoid changing keyboard behavior.
+[ ] 049. Design the login page.
 
+[ ] 050. Design the dashboard.
 
-Phase 3 — Inspect Existing Tests
+[ ] 051. Design the profile page.
 
-[ ] 051. Locate the test file for PropertyMapPin.
+[ ] 052. Design the settings page.
 
-[ ] 052. Check whether tests use Vitest.
+[ ] 053. Design error pages.
 
-[ ] 053. Check whether tests use Jest.
+[ ] 054. Design loading states.
 
-[ ] 054. Check whether tests use React Testing Library.
+[ ] 055. Design empty states.
 
-[ ] 055. Read the existing test setup.
+[ ] 056. Design success states.
 
-[ ] 056. Identify existing render helpers.
+[ ] 057. Design error states.
 
-[ ] 057. Identify existing property fixtures.
+[ ] 058. Design confirmation dialogs.
 
-[ ] 058. Identify existing mock functions.
+[ ] 059. Design mobile navigation.
 
-[ ] 059. Identify existing click tests.
+[ ] 060. Design responsive layouts.
 
-[ ] 060. Identify existing accessibility tests.
 
-[ ] 061. Check whether the marker can already be queried by role.
+3. Project Setup
 
-[ ] 062. Check whether tests currently rely on text.
+[ ] 061. Install VS Code.
 
-[ ] 063. Check whether tests currently rely on test IDs.
+[ ] 062. Install Git.
 
-[ ] 064. Preserve the existing testing conventions.
+[ ] 063. Install Node.js.
 
-[ ] 065. Avoid introducing unnecessary testing libraries.
+[ ] 064. Verify Node.js installation.
 
-[ ] 066. Check TypeScript configuration.
+[ ] 065. Verify npm installation.
 
-[ ] 067. Check test environment configuration.
+[ ] 066. Create the project folder.
 
-[ ] 068. Check existing lint rules.
+[ ] 067. Open the project in VS Code.
 
-[ ] 069. Check formatting rules.
+[ ] 068. Initialize Git.
 
-[ ] 070. Check the project's test command.
+[ ] 069. Create the initial repository.
 
+[ ] 070. Create a .gitignore file.
 
-Phase 4 — Define Expected Behavior
+[ ] 071. Create a README file.
 
-[ ] 071. Define behavior when a property has a title.
+[ ] 072. Initialize the package manager.
 
-[ ] 072. Define behavior when a property has no title.
+[ ] 073. Select the frontend framework.
 
-[ ] 073. Define behavior when title is undefined.
+[ ] 074. Select the backend framework.
 
-[ ] 074. Define behavior when title is null.
+[ ] 075. Select the database.
 
-[ ] 075. Define behavior when title is empty.
+[ ] 076. Select the styling system.
 
-[ ] 076. Define behavior when title contains whitespace.
+[ ] 077. Select the authentication strategy.
 
-[ ] 077. Define behavior when title contains normal text.
+[ ] 078. Select the deployment platform.
 
-[ ] 078. Define behavior when title contains special characters.
+[ ] 079. Configure VS Code settings.
 
-[ ] 079. Define behavior when title contains numbers.
+[ ] 080. Install useful VS Code extensions.
 
-[ ] 080. Define behavior when title is unusually long.
 
-[ ] 081. Ensure the title is used as the accessible name when valid.
+4. Frontend Foundation
 
-[ ] 082. Ensure the fallback is used when title is missing.
+[ ] 081. Create the frontend application.
 
-[ ] 083. Ensure the accessible name is always nonempty.
+[ ] 082. Create the source directory.
 
-[ ] 084. Ensure the accessible name is stable.
+[ ] 083. Create the components directory.
 
-[ ] 085. Ensure the accessible name is understandable.
+[ ] 084. Create the pages directory.
 
-[ ] 086. Ensure the accessible name is appropriate for screen readers.
+[ ] 085. Create the layouts directory.
 
-[ ] 087. Ensure keyboard users can identify the marker.
+[ ] 086. Create the hooks directory.
 
-[ ] 088. Ensure multiple markers remain distinguishable when titles exist.
+[ ] 087. Create the utilities directory.
 
-[ ] 089. Ensure untitled markers still have a usable label.
+[ ] 088. Create the services directory.
 
-[ ] 090. Document the expected behavior in tests.
+[ ] 089. Create the assets directory.
 
+[ ] 090. Create the styles directory.
 
-Phase 5 — Implement the Accessible Label
+[ ] 091. Configure the frontend entry point.
 
-[ ] 091. Open PropertyMapPin.tsx.
+[ ] 092. Configure global styles.
 
-[ ] 092. Locate the interactive marker element.
+[ ] 093. Configure the application's root component.
 
-[ ] 093. Identify where its accessible label is assigned.
+[ ] 094. Create the main layout.
 
-[ ] 094. Determine whether the label can be calculated inline.
+[ ] 095. Create the navigation component.
 
-[ ] 095. Determine whether a local variable improves readability.
+[ ] 096. Create the footer component.
 
-[ ] 096. Use the property title when present.
+[ ] 097. Create the button component.
 
-[ ] 097. Add the generic fallback when the title is missing.
+[ ] 098. Create the input component.
 
-[ ] 098. Ensure the fallback is a string.
+[ ] 099. Create the select component.
 
-[ ] 099. Ensure the resulting label is never empty.
+[ ] 100. Create the modal component.
 
-[ ] 100. Ensure the label is passed to the marker.
+[ ] 101. Create the card component.
 
-[ ] 101. Keep the change limited to accessibility.
+[ ] 102. Create the table component.
 
-[ ] 102. Do not alter the marker's visual markup unnecessarily.
+[ ] 103. Create the dropdown component.
 
-[ ] 103. Do not alter the marker's price rendering.
+[ ] 104. Create the alert component.
 
-[ ] 104. Do not alter the marker's title rendering.
+[ ] 105. Create the loading component.
 
-[ ] 105. Do not alter the click handler.
 
-[ ] 106. Do not alter navigation logic.
+5. Routing
 
-[ ] 107. Do not alter property selection logic.
+[ ] 106. Install/configure routing.
 
-[ ] 108. Do not alter event propagation.
+[ ] 107. Create the home route.
 
-[ ] 109. Do not alter map behavior.
+[ ] 108. Create the login route.
 
-[ ] 110. Do not alter styling.
+[ ] 109. Create the registration route.
 
-[ ] 111. Do not alter marker positioning.
+[ ] 110. Create the dashboard route.
 
-[ ] 112. Do not alter animations.
+[ ] 111. Create the profile route.
 
-[ ] 113. Do not alter loading behavior.
+[ ] 112. Create the settings route.
 
-[ ] 114. Do not alter data fetching.
+[ ] 113. Create the main feature routes.
 
-[ ] 115. Do not alter unrelated components.
+[ ] 114. Create the 404 route.
 
+[ ] 115. Create protected routes.
 
-Phase 6 — Handle Missing Titles Safely
+[ ] 116. Create public routes.
 
-[ ] 116. Test the normal title case mentally.
+[ ] 117. Create route guards.
 
-[ ] 117. Test undefined title behavior.
+[ ] 118. Test direct URL navigation.
 
-[ ] 118. Test null title behavior if the type permits it.
+[ ] 119. Test unauthorized navigation.
 
-[ ] 119. Test empty-string behavior.
+[ ] 120. Test authenticated navigation.
 
-[ ] 120. Test whitespace-only behavior.
 
-[ ] 121. Decide whether whitespace should count as missing.
+6. Backend
 
-[ ] 122. Keep the implementation consistent with project conventions.
+[ ] 121. Create the backend application.
 
-[ ] 123. Prevent accidental "undefined" labels.
+[ ] 122. Create the backend source directory.
 
-[ ] 124. Prevent accidental "null" labels.
+[ ] 123. Create controllers.
 
-[ ] 125. Prevent empty accessible names.
+[ ] 124. Create models.
 
-[ ] 126. Prevent labels containing only spaces.
+[ ] 125. Create services.
 
-[ ] 127. Ensure the fallback is deterministic.
+[ ] 126. Create routes.
 
-[ ] 128. Ensure the fallback does not depend on random data.
+[ ] 127. Create middleware.
 
-[ ] 129. Ensure the fallback does not depend on rendering state.
+[ ] 128. Create validators.
 
-[ ] 130. Ensure the fallback works for every property.
+[ ] 129. Create configuration files.
 
+[ ] 130. Configure environment variables.
 
-Phase 7 — Add Titled Property Tests
+[ ] 131. Configure CORS.
 
-[ ] 131. Create or update the PropertyMapPin test suite.
+[ ] 132. Configure request parsing.
 
-[ ] 132. Create a titled property fixture.
+[ ] 133. Configure error handling.
 
-[ ] 133. Give the fixture a realistic property title.
+[ ] 134. Configure logging.
 
-[ ] 134. Render the marker with the titled property.
+[ ] 135. Create the health-check endpoint.
 
-[ ] 135. Query the interactive marker by role.
+[ ] 136. Test the backend server.
 
-[ ] 136. Query it using its accessible name.
+[ ] 137. Test API requests.
 
-[ ] 137. Assert that the marker exists.
+[ ] 138. Test API error responses.
 
-[ ] 138. Assert that the accessible name equals the property title.
+[ ] 139. Document API endpoints.
 
-[ ] 139. Confirm the title is not replaced unnecessarily.
+[ ] 140. Connect frontend to backend.
 
-[ ] 140. Confirm no generic fallback is used for titled properties.
 
-[ ] 141. Confirm the visible title remains unchanged.
+7. Database
 
-[ ] 142. Confirm the visible price remains unchanged.
+[ ] 141. Install/configure the database.
 
-[ ] 143. Confirm the marker remains interactive.
+[ ] 142. Create the development database.
 
-[ ] 144. Confirm the existing click handler still works.
+[ ] 143. Design the database schema.
 
-[ ] 145. Keep the test focused on the requested behavior.
+[ ] 144. Identify database entities.
 
+[ ] 145. Define primary keys.
 
-Phase 8 — Add Untitled Property Tests
+[ ] 146. Define foreign keys.
 
-[ ] 146. Create an untitled property fixture.
+[ ] 147. Define relationships.
 
-[ ] 147. Set the title to undefined if supported.
+[ ] 148. Define required fields.
 
-[ ] 148. Render the marker.
+[ ] 149. Define optional fields.
 
-[ ] 149. Query the marker by role.
+[ ] 150. Define unique constraints.
 
-[ ] 150. Query it using the fallback accessible name.
+[ ] 151. Define indexes.
 
-[ ] 151. Assert that the marker exists.
+[ ] 152. Create user table.
 
-[ ] 152. Assert that the accessible name is nonempty.
+[ ] 153. Create role table.
 
-[ ] 153. Assert that the fallback label is used.
+[ ] 154. Create application-specific tables.
 
-[ ] 154. Confirm the fallback is concise.
+[ ] 155. Create timestamps.
 
-[ ] 155. Confirm the fallback is meaningful.
+[ ] 156. Create database migrations.
 
-[ ] 156. Confirm the marker remains clickable.
+[ ] 157. Run migrations.
 
-[ ] 157. Confirm the click callback is still triggered.
+[ ] 158. Create seed data.
 
-[ ] 158. Confirm no visible UI changes occurred.
+[ ] 159. Test database queries.
 
-[ ] 159. Confirm the price remains unchanged.
+[ ] 160. Test database relationships.
 
-[ ] 160. Confirm unrelated property information remains unchanged.
 
+8. Authentication
 
-Phase 9 — Add Edge-Case Tests
+[ ] 161. Create registration endpoint.
 
-[ ] 161. Test an empty-string title.
+[ ] 162. Create login endpoint.
 
-[ ] 162. Verify the fallback is used for an empty title.
+[ ] 163. Create logout functionality.
 
-[ ] 163. Test a whitespace-only title.
+[ ] 164. Hash passwords.
 
-[ ] 164. Verify the fallback is used when appropriate.
+[ ] 165. Validate passwords.
 
-[ ] 165. Test a normal multi-word title.
+[ ] 166. Implement session/token authentication.
 
-[ ] 166. Verify the exact title is used.
+[ ] 167. Implement authentication middleware.
 
-[ ] 167. Test a title containing numbers.
+[ ] 168. Implement protected API endpoints.
 
-[ ] 168. Verify the number-containing title works.
+[ ] 169. Create password-reset flow.
 
-[ ] 169. Test a title containing punctuation.
+[ ] 170. Create email verification flow.
 
-[ ] 170. Verify punctuation does not break the label.
+[ ] 171. Handle invalid credentials.
 
-[ ] 171. Test a title containing apostrophes.
+[ ] 172. Handle expired sessions.
 
-[ ] 172. Test a title containing ampersands.
+[ ] 173. Handle unauthorized requests.
 
-[ ] 173. Test a title containing Unicode characters.
+[ ] 174. Handle duplicate emails.
 
-[ ] 174. Test a long but valid property title.
+[ ] 175. Test registration.
 
-[ ] 175. Ensure long titles remain accessible.
+[ ] 176. Test login.
 
-[ ] 176. Ensure no unexpected fallback is introduced.
+[ ] 177. Test logout.
 
-[ ] 177. Test the marker without optional title data.
+[ ] 178. Test protected routes.
 
-[ ] 178. Ensure the marker still renders.
+[ ] 179. Test password reset.
 
-[ ] 179. Ensure the marker remains keyboard accessible.
+[ ] 180. Test authentication security.
 
-[ ] 180. Ensure the marker remains screen-reader accessible.
 
+9. Main Application Features
 
-Phase 10 — Preserve Click Behavior
+[ ] 181. Build the primary dashboard.
 
-[ ] 181. Locate the marker's click callback.
+[ ] 182. Display user information.
 
-[ ] 182. Create a mock click handler if one does not exist.
+[ ] 183. Display application statistics.
 
-[ ] 183. Render the marker with the click handler.
+[ ] 184. Build the primary feature page.
 
-[ ] 184. Find the marker by accessible role and name.
+[ ] 185. Build the create functionality.
 
-[ ] 185. Trigger a click.
+[ ] 186. Build the read functionality.
 
-[ ] 186. Assert that the callback was called.
+[ ] 187. Build the update functionality.
 
-[ ] 187. Verify it was called the expected number of times.
+[ ] 188. Build the delete functionality.
 
-[ ] 188. Test clicking a titled marker.
+[ ] 189. Add search.
 
-[ ] 189. Test clicking an untitled marker.
+[ ] 190. Add filtering.
 
-[ ] 190. Verify the fallback label does not interfere with clicks.
+[ ] 191. Add sorting.
 
-[ ] 191. Verify the title label does not interfere with clicks.
+[ ] 192. Add pagination.
 
-[ ] 192. Verify event handling remains unchanged.
+[ ] 193. Add confirmation dialogs.
 
-[ ] 193. Verify navigation remains unchanged if applicable.
+[ ] 194. Add success notifications.
 
-[ ] 194. Verify property selection remains unchanged if applicable.
+[ ] 195. Add error notifications.
 
-[ ] 195. Verify map interactions remain unchanged.
+[ ] 196. Add loading states.
 
+[ ] 197. Add empty states.
 
-Phase 11 — Preserve Visible Content
+[ ] 198. Add form validation.
 
-[ ] 196. Identify the rendered price element.
+[ ] 199. Connect all features to the API.
 
-[ ] 197. Add or preserve a price assertion.
+[ ] 200. Verify the complete feature workflow.
 
-[ ] 198. Render the titled property.
 
-[ ] 199. Verify the expected price is visible.
+10. Forms & Validation
 
-[ ] 200. Render the untitled property.
+[ ] 201. Identify every application form.
 
-[ ] 201. Verify the expected price remains visible.
+[ ] 202. Define required fields.
 
-[ ] 202. Identify the visible property title element.
+[ ] 203. Define field types.
 
-[ ] 203. Verify titled property text remains visible.
+[ ] 204. Add frontend validation.
 
-[ ] 204. Verify untitled property display remains unchanged.
+[ ] 205. Add backend validation.
 
-[ ] 205. Ensure aria-label does not replace visible content.
+[ ] 206. Validate email addresses.
 
-[ ] 206. Ensure no text is added to the visual marker.
+[ ] 207. Validate passwords.
 
-[ ] 207. Ensure no fallback text appears visually.
+[ ] 208. Validate numbers.
 
-[ ] 208. Ensure CSS remains unchanged.
+[ ] 209. Validate dates.
 
-[ ] 209. Ensure layout remains unchanged.
+[ ] 210. Validate file uploads.
 
-[ ] 210. Ensure marker dimensions remain unchanged.
+[ ] 211. Display field errors.
 
+[ ] 212. Display server errors.
 
-Phase 12 — Accessibility Verification
+[ ] 213. Prevent duplicate submissions.
 
-[ ] 211. Verify every interactive marker has an accessible name.
+[ ] 214. Disable buttons during submission.
 
-[ ] 212. Verify titled markers use their titles.
+[ ] 215. Preserve useful form values after errors.
 
-[ ] 213. Verify untitled markers use the fallback.
+[ ] 216. Test invalid input.
 
-[ ] 214. Verify empty labels are impossible.
+[ ] 217. Test missing input.
 
-[ ] 215. Verify undefined labels are impossible.
+[ ] 218. Test extremely long input.
 
-[ ] 216. Verify null labels are impossible.
+[ ] 219. Test malicious input.
 
-[ ] 217. Verify screen readers receive the intended name.
+[ ] 220. Test successful submissions.
 
-[ ] 218. Verify keyboard users can identify markers.
 
-[ ] 219. Verify markers remain focusable where required.
+11. User Experience
 
-[ ] 220. Verify focus behavior remains unchanged.
+[ ] 221. Add loading indicators.
 
-[ ] 221. Verify the label describes the marker accurately.
+[ ] 222. Add skeleton loaders where appropriate.
 
-[ ] 222. Verify the fallback does not expose implementation details.
+[ ] 223. Add meaningful error messages.
 
-[ ] 223. Verify accessibility semantics are not duplicated.
+[ ] 224. Add success messages.
 
-[ ] 224. Check for conflicting aria-* attributes.
+[ ] 225. Add confirmation messages.
 
-[ ] 225. Remove unnecessary accessibility attributes only if directly related.
+[ ] 226. Prevent accidental destructive actions.
 
+[ ] 227. Add keyboard navigation.
 
-Phase 13 — Test Suite Quality
+[ ] 228. Add focus states.
 
-[ ] 226. Run the targeted PropertyMapPin tests.
+[ ] 229. Add hover states.
 
-[ ] 227. Confirm titled-property tests pass.
+[ ] 230. Add disabled states.
 
-[ ] 228. Confirm untitled-property tests pass.
+[ ] 231. Add responsive navigation.
 
-[ ] 229. Confirm click tests pass.
+[ ] 232. Test small screens.
 
-[ ] 230. Confirm visible-content tests pass.
+[ ] 233. Test medium screens.
 
-[ ] 231. Run edge-case tests.
+[ ] 234. Test large screens.
 
-[ ] 232. Check for flaky tests.
+[ ] 235. Test landscape orientation.
 
-[ ] 233. Ensure tests do not depend on timing.
+[ ] 236. Test touch interactions.
 
-[ ] 234. Ensure tests do not depend on random data.
+[ ] 237. Check text readability.
 
-[ ] 235. Ensure tests use stable queries.
+[ ] 238. Check spacing consistency.
 
-[ ] 236. Prefer role/name queries for accessibility behavior.
+[ ] 239. Check visual consistency.
 
-[ ] 237. Avoid testing implementation details unnecessarily.
+[ ] 240. Remove confusing UI elements.
 
-[ ] 238. Keep fixtures readable.
 
-[ ] 239. Keep assertions specific.
+12. Security
 
-[ ] 240. Keep test descriptions clear.
+[ ] 241. Never expose secrets in frontend code.
 
+[ ] 242. Create environment variables.
 
-Phase 14 — Run Project Checks
+[ ] 243. Add .env to .gitignore.
 
-[ ] 241. Run the project's lint command.
+[ ] 244. Validate all server input.
 
-[ ] 242. Fix lint issues caused by the change.
+[ ] 245. Sanitize user-generated content.
 
-[ ] 243. Run the formatter.
+[ ] 246. Protect authenticated endpoints.
 
-[ ] 244. Verify formatting.
+[ ] 247. Verify authorization.
 
-[ ] 245. Run TypeScript type checking.
+[ ] 248. Prevent privilege escalation.
 
-[ ] 246. Fix type errors.
+[ ] 249. Protect password storage.
 
-[ ] 247. Run the complete test suite.
+[ ] 250. Configure secure cookies if applicable.
 
-[ ] 248. Confirm unrelated tests still pass.
+[ ] 251. Configure HTTPS for production.
 
-[ ] 249. Check for new warnings.
+[ ] 252. Configure CORS correctly.
 
-[ ] 250. Check the browser console.
+[ ] 253. Prevent SQL injection.
 
-[ ] 251. Check the terminal output.
+[ ] 254. Prevent XSS.
 
-[ ] 252. Verify there are no runtime errors.
+[ ] 255. Add rate limiting where necessary.
 
-[ ] 253. Verify there are no accessibility warnings.
+[ ] 256. Protect file uploads.
 
-[ ] 254. Verify there are no React warnings.
+[ ] 257. Limit upload sizes.
 
-[ ] 255. Verify there are no TypeScript warnings.
+[ ] 258. Validate uploaded file types.
 
+[ ] 259. Review dependency vulnerabilities.
 
-Phase 15 — Manual Verification
+[ ] 260. Perform a security review.
 
-[ ] 256. Start the development server.
 
-[ ] 257. Open the application in a browser.
+13. Performance
 
-[ ] 258. Navigate to the property map.
+[ ] 261. Measure initial page load.
 
-[ ] 259. Locate a property with a title.
+[ ] 262. Identify slow components.
 
-[ ] 260. Confirm its visible title is unchanged.
+[ ] 263. Optimize large images.
 
-[ ] 261. Confirm its visible price is unchanged.
+[ ] 264. Compress images.
 
-[ ] 262. Inspect its accessible name.
+[ ] 265. Use appropriate image formats.
 
-[ ] 263. Confirm the title is used as its accessible name.
+[ ] 266. Lazy-load large resources.
 
-[ ] 264. Locate a property without a title.
+[ ] 267. Reduce unnecessary JavaScript.
 
-[ ] 265. Inspect its accessible name.
+[ ] 268. Remove unused dependencies.
 
-[ ] 266. Confirm the fallback label is present.
+[ ] 269. Optimize database queries.
 
-[ ] 267. Confirm the fallback is nonempty.
+[ ] 270. Add database indexes where needed.
 
-[ ] 268. Confirm the marker can still be clicked.
+[ ] 271. Implement API pagination.
 
-[ ] 269. Confirm clicking opens/selects the expected property.
+[ ] 272. Cache appropriate data.
 
-[ ] 270. Confirm no visual regression occurred.
+[ ] 273. Avoid unnecessary API requests.
 
+[ ] 274. Debounce search inputs.
 
-Phase 16 — Final Review & Acceptance
+[ ] 275. Optimize large lists.
 
-[ ] 271. Review the production code diff.
+[ ] 276. Check memory usage.
 
-[ ] 272. Confirm only the accessible-label logic changed.
+[ ] 277. Check CPU usage.
 
-[ ] 273. Confirm tests cover titled properties.
+[ ] 278. Check network requests.
 
-[ ] 274. Confirm tests cover untitled properties.
+[ ] 279. Test performance on slower devices.
 
-[ ] 275. Confirm tests cover click behavior.
+[ ] 280. Record performance improvements.
 
-[ ] 276. Confirm visible price remains unchanged.
 
-[ ] 277. Confirm visible title remains unchanged.
+14. Accessibility
 
-[ ] 278. Confirm marker styling remains unchanged.
+[ ] 281. Use semantic HTML.
 
-[ ] 279. Confirm marker positioning remains unchanged.
+[ ] 282. Add labels to form inputs.
 
-[ ] 280. Confirm keyboard behavior remains unchanged.
+[ ] 283. Add alternative text to images.
 
-[ ] 281. Confirm every marker has a nonempty accessible name.
+[ ] 284. Ensure sufficient color contrast.
 
-[ ] 282. Confirm fallback behavior is deterministic.
+[ ] 285. Ensure keyboard accessibility.
 
-[ ] 283. Confirm no unrelated files were modified.
+[ ] 286. Ensure visible focus indicators.
 
-[ ] 284. Confirm no unnecessary dependencies were added.
+[ ] 287. Use accessible buttons.
 
-[ ] 285. Confirm no secrets were introduced.
+[ ] 288. Use accessible navigation.
 
-[ ] 286. Confirm lint passes.
+[ ] 289. Add appropriate ARIA attributes.
 
-[ ] 287. Confirm type checking passes.
+[ ] 290. Test forms with keyboard only.
 
-[ ] 288. Confirm targeted tests pass.
+[ ] 291. Test navigation with keyboard only.
 
-[ ] 289. Confirm the full test suite passes.
+[ ] 292. Test screen-reader compatibility.
 
-[ ] 290. Confirm the application builds successfully.
+[ ] 293. Check heading hierarchy.
 
-[ ] 291. Confirm the production build succeeds.
+[ ] 294. Check link descriptions.
 
-[ ] 292. Review the final accessibility behavior.
+[ ] 295. Fix accessibility warnings.
 
-[ ] 293. Review the final user interaction behavior.
 
-[ ] 294. Review the final visible UI.
+15. Testing
 
-[ ] 295. Review the final test coverage.
+[ ] 296. Create a testing strategy.
 
-[ ] 296. Review the final Git diff.
+[ ] 297. Test the landing page.
 
-[ ] 297. Write a concise change summary.
+[ ] 298. Test registration.
 
-[ ] 298. Record the tests that were run.
+[ ] 299. Test login.
 
-[ ] 299. Confirm all acceptance criteria are satisfied.
+[ ] 300. Test logout.
 
-[ ] 300. Commit the completed accessibility fix.
+[ ] 301. Test password reset.
+
+[ ] 302. Test dashboard.
+
+[ ] 303. Test user profile.
+
+[ ] 304. Test application settings.
+
+[ ] 305. Test every CRUD operation.
+
+[ ] 306. Test search.
+
+[ ] 307. Test filtering.
+
+[ ] 308. Test sorting.
+
+[ ] 309. Test pagination.
+
+[ ] 310. Test forms.
+
+[ ] 311. Test validation.
+
+[ ] 312. Test error handling.
+
+[ ] 313. Test unauthorized access.
+
+[ ] 314. Test different user roles.
+
+[ ] 315. Test API endpoints.
+
+[ ] 316. Test database operations.
+
+[ ] 317. Test mobile responsiveness.
+
+[ ] 318. Test different browsers.
+
+[ ] 319. Test slow internet connections.
+
+[ ] 320. Record and fix discovered bugs.
+
+
+16. Code Quality
+
+[ ] 321. Review the project structure.
+
+[ ] 322. Remove duplicate code.
+
+[ ] 323. Rename unclear variables.
+
+[ ] 324. Rename unclear functions.
+
+[ ] 325. Break large components apart.
+
+[ ] 326. Break large functions apart.
+
+[ ] 327. Remove unused imports.
+
+[ ] 328. Remove unused variables.
+
+[ ] 329. Remove unused files.
+
+[ ] 330. Remove debug logs.
+
+[ ] 331. Remove temporary code.
+
+[ ] 332. Add useful comments.
+
+[ ] 333. Avoid unnecessary comments.
+
+[ ] 334. Apply consistent formatting.
+
+[ ] 335. Configure a formatter.
+
+[ ] 336. Configure linting.
+
+[ ] 337. Fix lint errors.
+
+[ ] 338. Fix TypeScript errors if applicable.
+
+[ ] 339. Review dependency versions.
+
+[ ] 340. Perform a final code review.
+
+
+17. Git & GitHub
+
+[ ] 341. Initialize the Git repository.
+
+[ ] 342. Check the .gitignore.
+
+[ ] 343. Make the first commit.
+
+[ ] 344. Create the GitHub repository.
+
+[ ] 345. Connect the local repository.
+
+[ ] 346. Push the project.
+
+[ ] 347. Create a development branch.
+
+[ ] 348. Use meaningful commit messages.
+
+[ ] 349. Commit changes regularly.
+
+[ ] 350. Pull before major changes.
+
+[ ] 351. Resolve merge conflicts correctly.
+
+[ ] 352. Keep secrets out of GitHub.
+
+[ ] 353. Review the Git history.
+
+[ ] 354. Add project documentation.
+
+[ ] 355. Add installation instructions.
+
+[ ] 356. Add environment-variable instructions.
+
+[ ] 357. Add API documentation.
+
+[ ] 358. Add screenshots where useful.
+
+[ ] 359. Add contribution instructions if needed.
+
+[ ] 360. Keep the repository organized.
+
+
+18. Deployment Preparation
+
+[ ] 361. Choose the frontend hosting platform.
+
+[ ] 362. Choose the backend hosting platform.
+
+[ ] 363. Choose production database hosting.
+
+[ ] 364. Create production environment variables.
+
+[ ] 365. Configure production API URLs.
+
+[ ] 366. Configure production database.
+
+[ ] 367. Configure allowed origins.
+
+[ ] 368. Configure production authentication.
+
+[ ] 369. Build the frontend locally.
+
+[ ] 370. Test the production build.
+
+[ ] 371. Build the backend for production.
+
+[ ] 372. Test production configuration locally.
+
+[ ] 373. Remove development-only settings.
+
+[ ] 374. Enable production security settings.
+
+[ ] 375. Configure database migrations.
+
+[ ] 376. Configure database backups.
+
+[ ] 377. Configure error monitoring.
+
+[ ] 378. Configure application logging.
+
+[ ] 379. Verify deployment requirements.
+
+[ ] 380. Create a deployment checklist.
+
+
+19. Deployment
+
+[ ] 381. Deploy the database.
+
+[ ] 382. Run production migrations.
+
+[ ] 383. Deploy the backend.
+
+[ ] 384. Test the backend URL.
+
+[ ] 385. Deploy the frontend.
+
+[ ] 386. Configure the frontend environment.
+
+[ ] 387. Connect frontend to production API.
+
+[ ] 388. Configure the custom domain if applicable.
+
+[ ] 389. Configure HTTPS.
+
+[ ] 390. Test the production homepage.
+
+[ ] 391. Test production registration.
+
+[ ] 392. Test production login.
+
+[ ] 393. Test production logout.
+
+[ ] 394. Test production database operations.
+
+[ ] 395. Test production file uploads.
+
+[ ] 396. Test production API errors.
+
+[ ] 397. Test production mobile layout.
+
+[ ] 398. Test production desktop layout.
+
+[ ] 399. Check browser console errors.
+
+[ ] 400. Check server logs.
+
+
+20. SEO & Web Presence
+
+[ ] 401. Add a meaningful page title.
+
+[ ] 402. Add meta descriptions.
+
+[ ] 403. Add appropriate heading structure.
+
+[ ] 404. Add favicon.
+
+[ ] 405. Add Open Graph metadata.
+
+[ ] 406. Add social sharing metadata.
+
+[ ] 407. Create a sitemap if appropriate.
+
+[ ] 408. Create robots.txt if appropriate.
+
+[ ] 409. Optimize page URLs.
+
+[ ] 410. Add descriptive image alt text.
+
+[ ] 411. Check broken links.
+
+[ ] 412. Check duplicate page titles.
+
+[ ] 413. Check mobile SEO.
+
+[ ] 414. Check page speed.
+
+[ ] 415. Verify search-engine indexing settings.
+
+
+21. Monitoring & Maintenance
+
+[ ] 416. Monitor application uptime.
+
+[ ] 417. Monitor server errors.
+
+[ ] 418. Monitor database errors.
+
+[ ] 419. Monitor frontend errors.
+
+[ ] 420. Monitor API performance.
+
+[ ] 421. Monitor application usage.
+
+[ ] 422. Monitor storage usage.
+
+[ ] 423. Monitor database size.
+
+[ ] 424. Configure backups.
+
+[ ] 425. Test database restoration.
+
+[ ] 426. Keep dependencies updated.
+
+[ ] 427. Review security vulnerabilities.
+
+[ ] 428. Review application logs.
+
+[ ] 429. Remove obsolete data.
+
+[ ] 430. Review user feedback.
+
+
+22. Final Launch Review
+
+[ ] 431. Verify every MVP feature.
+
+[ ] 432. Verify authentication.
+
+[ ] 433. Verify authorization.
+
+[ ] 434. Verify database integrity.
+
+[ ] 435. Verify API functionality.
+
+[ ] 436. Verify frontend functionality.
+
+[ ] 437. Verify responsive design.
+
+[ ] 438. Verify accessibility.
+
+[ ] 439. Verify security.
+
+[ ] 440. Verify performance.
+
+[ ] 441. Verify SEO.
+
+[ ] 442. Verify error handling.
+
+[ ] 443. Verify deployment configuration.
+
+[ ] 444. Verify environment variables.
+
+[ ] 445. Verify backups.
+
+[ ] 446. Verify documentation.
+
+[ ] 447. Create a release version.
+
+[ ] 448. Tag the stable Git commit.
+
+[ ] 449. Launch the application.
+
+[ ] 450. Create the roadmap for the next version.

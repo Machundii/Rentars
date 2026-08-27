@@ -63,7 +63,7 @@ function windowStart(now: Date): string {
 
 /** Return true if the User-Agent string looks like a known bot. */
 export function isBot(userAgent: string | undefined): boolean {
-  if (!userAgent) return false;
+  if (!userAgent || !userAgent.trim()) return true;
   const ua = userAgent.toLowerCase();
   return BOT_UA_PATTERNS.some((pat) => ua.includes(pat));
 }

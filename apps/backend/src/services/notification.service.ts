@@ -71,11 +71,34 @@ const EMAIL_TEMPLATES: Partial<Record<NotificationType, string>> = {
   message_received: 'New Message',
 };
 
+const VALID_NOTIFICATION_TYPES: ReadonlyArray<NotificationType> = [
+  'booking_created',
+  'booking_confirmed',
+  'booking_cancelled',
+  'booking_modification_requested',
+  'booking_modification_accepted',
+  'booking_modification_declined',
+  'payment_received',
+  'booking_reminder',
+  'review_requested',
+  'review_submitted',
+  'host_response',
+  'dispute_initiated',
+  'new_property',
+  'system_alert',
+  'report_created',
+  'message_received',
+];
+
 export async function createNotification(
   userId: string,
   type: NotificationType,
   data: Record<string, unknown>
 ): Promise<ServiceResponse<Notification>> {
+  if (!VALID_NOTIFICATION_TYPES.includes(type)) {
+    return { success: false, error: `Unknown notification type: ${type}` };
+  }
+
   const { data: notification, error } = await supabase
     .from('notifications')
     .insert({ user_id: userId, type, data })
@@ -163,6 +186,10 @@ export async function markAsRead(
 }
 
 export async function markAllAsRead(userId: string): Promise<ServiceResponse<void>> {
+  if (!userId || !userId.trim()) {
+    return { success: false, error: 'user_id is required' };
+  }
+
   const { error } = await supabase
     .from('notifications')
     .update({ read: true })
