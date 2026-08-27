@@ -36,8 +36,14 @@ export async function submitReview(
     return { success: false, error: 'Rating must be between 1 and 5' };
   }
 
-  // Sanitize user-supplied text; enforce max 2000 chars for review comments
+  // Sanitize user-supplied text; enforce max 2000 chars for review comments.
+  // Trim happens inside sanitizeLongText, so validate length on the cleaned
+  // value — a whitespace-only comment must be rejected here, not stored as
+  // an empty string after the DB round-trip.
   const cleanComment = sanitizeLongText(comment, 2_000);
+  if (cleanComment.length === 0) {
+    return { success: false, error: 'Comment is required' };
+  }
 
   // Verify booking belongs to reviewer
   const { data: booking, error: bookingError } = await supabase
@@ -137,9 +143,12 @@ export async function getAverageRating(userId: string): Promise<ServiceResponse<
     .eq('is_approved', true);
 
   if (error) return { success: false, error: error.message };
+  // Return zero for both null responses and empty arrays so callers always
+  // receive a valid numeric zero rather than NaN for unrated properties.
   if (!data || data.length === 0) return { success: true, data: 0 };
 
-  const avg = (data as { rating: number }[]).reduce((sum, r) => sum + r.rating, 0) / data.length;
+  const rows = data as { rating: number }[];
+  const avg = rows.reduce((sum, r) => sum + r.rating, 0) / rows.length;
   return { success: true, data: Math.round(avg * 10) / 10 };
 }
 
