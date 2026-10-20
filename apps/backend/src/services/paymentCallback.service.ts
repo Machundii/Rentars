@@ -100,46 +100,89 @@ function computeHmac(rawBody: Buffer, secret: string): string {
  */
 function safeCompare(a: string, b: string): boolean {
   try {
-    const bufA = Buffer.from(a.padEnd(64, '0').slice(0, 64), 'hex');
-    const bufB = Buffer.from(b.padEnd(64, '0').slice(0, 64), 'hex');
-    return timingSafeEqual(bufA, bufB) && a.length === b.length;
+    const bufA = Buffer.from(a, 'hex');
+    const bufB = Buffer.from(b, 'hex');
+    if (bufA.length !== bufB.length) {
+      // Still perform a comparison to keep timing roughly constant.
+      timingSafeEqual(bufA, bufA);
+      return false;
+    }
+    return timingSafeEqual(bufA, bufB);
   } catch {
     return false;
   }
 }
 
 /**
- * Check whether `eventId` has already been processed (replay ledger).
- * Returns true when the event is a known replay.
+ * Normalise a provider signature header. Providers may prefix the hex digest
+ * (e.g. `sha256=<hex>` or `t=<ts>,v1=<hex>`); extract the trailing hex digest.
  */
-async function isReplay(eventId: string): Promise<boolean> {
+function extractSignature(rawHeader: string): string {
+  const trimmed = rawHeader.trim();
+  const lastSegment = trimmed.includes(',')
+    ? trimmed.split(',').pop()!.trim()
+    : trimmed;
+  const eqIndex = lastSegment.indexOf('=');
+  const candidate = eqIndex >= 0 ? lastSegment.slice(eqIndex + 1) : lastSegment;
+  return candidate.trim().toLowerCase();
+}
+
+/**
+ * Check whether `eventId` has already been processed (replay ledger).
+ * Returns the ledger row when the event is a known replay, else null.
+ */
+async function findLedgerEntry(eventId: string): Promise<{
+  id: string;
+  event_hash: string;
+  booking_id: string;
+} | null> {
   const cutoff = new Date(Date.now() - REPLAY_TTL_HOURS * 60 * 60 * 1_000).toISOString();
   const { data } = await supabase
     .from('payment_callback_events')
-    .select('id')
+    .select('id, event_hash, booking_id')
     .eq('event_id', eventId)
     .gte('created_at', cutoff)
     .maybeSingle();
-  return data !== null;
+  return (data as { id: string; event_hash: string; booking_id: string } | null) ?? null;
 }
 
 /**
  * Persist an event ID to the replay ledger.
+ * Uses upsert on event_id so concurrent deliveries cannot create duplicates.
+ * Returns true when the row was newly inserted (i.e. we own processing).
  */
 async function recordEvent(
   eventId: string,
   bookingId: string,
   eventHash: string,
-): Promise<void> {
-  await supabase
+  auditReference: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
     .from('payment_callback_events')
     .insert({
       event_id: eventId,
       booking_id: bookingId,
       event_hash: eventHash,
+      audit_reference: auditReference,
       created_at: new Date().toISOString(),
     })
-    .select(); // fire-and-forget but await to avoid unhandled rejections
+    .select('id');
+
+  if (error) {
+    // Unique-violation means another worker already claimed this event.
+    if ((error as { code?: string }).code === '23505') {
+      return false;
+    }
+    throw new Error(`Failed to record callback event: ${error.message}`);
+  }
+  return Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Build a stable audit reference for a processed callback.
+ */
+function buildAuditReference(eventId: string, eventHash: string): string {
+  return `cb_${eventId}_${eventHash.slice(0, 16)}`;
 }
 
 // ─── Main verifier ────────────────────────────────────────────────────────────
@@ -173,9 +216,10 @@ export async function verifyAndProcessCallback(
     };
   }
 
-  // ── 2. HMAC signature verification (constant time) ───────────────────────
+  // ── 2. HMAC signature verification (constant time, over raw bytes) ───────
   const expected = computeHmac(rawBody, webhookSecret);
-  if (!safeCompare(signatureHeader, expected)) {
+  const provided = extractSignature(signatureHeader);
+  if (!safeCompare(provided, expected)) {
     return {
       status: 'invalid_signature',
       httpStatus: 401,
@@ -221,7 +265,20 @@ export async function verifyAndProcessCallback(
   // ── 6. Replay detection ───────────────────────────────────────────────────
   const eventHash = hashEventPayload(body as unknown as Record<string, unknown>);
 
-  if (await isReplay(body.eventId)) {
+  const existing = await findLedgerEntry(body.eventId);
+  if (existing) {
+    // Same event ID re-delivered. If the payload hash differs, this is a
+    // tampered/conflicting replay — treat as a mismatch but stay harmless.
+    if (existing.event_hash !== eventHash) {
+      console.error(
+        `[Callback] Replay with divergent payload for eventId=${body.eventId}`,
+      );
+      return {
+        status: 'mismatch',
+        httpStatus: 422,
+        message: 'Event conflicts with previously processed event',
+      };
+    }
     return {
       status: 'replayed',
       httpStatus: 200,
@@ -249,14 +306,15 @@ export async function verifyAndProcessCallback(
       `[Callback] Amount mismatch for bookingId=${body.bookingId}: ` +
       `got=${incomingStroops} expected=${payment.amount_stroops}`,
     );
+    const auditReference = buildAuditReference(body.eventId, eventHash);
     // Transition to under_review so the discrepancy is auditable
     await transitionPaymentStatus(
       payment.id,
       'under_review',
-      { ...body, _reason: 'amount_mismatch' } as unknown as Record<string, unknown>,
+      { ...body, _reason: 'amount_mismatch', _audit_reference: auditReference } as unknown as Record<string, unknown>,
     );
     // Record in replay ledger to avoid re-processing
-    await recordEvent(body.eventId, body.bookingId, eventHash);
+    await recordEvent(body.eventId, body.bookingId, eventHash, auditReference);
     return {
       status: 'mismatch',
       httpStatus: 422,
@@ -266,16 +324,25 @@ export async function verifyAndProcessCallback(
 
   // ── 8. Map provider status and apply transition ───────────────────────────
   const canonicalStatus = mapProviderStatus(body.status);
+  const auditReference = buildAuditReference(body.eventId, eventHash);
+
+  // Claim the event in the replay ledger *before* mutating payment state so
+  // concurrent duplicate deliveries cannot both apply the transition.
+  const claimed = await recordEvent(body.eventId, body.bookingId, eventHash, auditReference);
+  if (!claimed) {
+    return {
+      status: 'replayed',
+      httpStatus: 200,
+      message: 'Event already processed',
+    };
+  }
 
   const transitionResult = await transitionPaymentStatus(
     payment.id,
     canonicalStatus,
-    body as unknown as Record<string, unknown>,
+    { ...body, _audit_reference: auditReference } as unknown as Record<string, unknown>,
     body.txHash ?? null,
   );
-
-  // Record in replay ledger regardless of transition outcome
-  await recordEvent(body.eventId, body.bookingId, eventHash);
 
   if (!transitionResult.success) {
     console.error(`[Callback] Transition failed for payment=${payment.id}:`, transitionResult.error);

@@ -10,7 +10,8 @@ import type { AuthRequest } from '@/middleware/auth.middleware.js';
 import type { BookingModification } from '@/services/booking.service.js';
 import type { BookingActor } from '@/services/bookingAuthorization.service.js';
 import { lookup, store, lockKey, completeKey, releaseKey, hashRequestBody } from '@/services/idempotency.service.js';
-import { fetchReceiptData, generateReceiptPdf } from '@/services/receipt.service.js';
+import { fetchReceiptData, generateReceiptPdf, getStoredReceipt } from '@/services/receipt.service.js';
+import { parseOccupancy } from '@/schemas/occupancy.schema.js';
 
 function calendarFeedSecret(): string {
   return env.CALENDAR_FEED_SECRET ?? env.JWT_SECRET;
@@ -92,13 +93,25 @@ export async function requestModification(req: Request, res: Response): Promise<
     guest_count?: number;
   };
 
+  // Validate occupancy server-side before it reaches the service so a client
+  // cannot bypass host-configured limits by editing the guest count.
+  let occupancy: { adults: number; children: number } | undefined;
+  if (guest_count !== undefined) {
+    const parsed = parseOccupancy({ guest_count });
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    occupancy = parsed.data;
+  }
+
   const result = await bookingService.requestModification(
     req.params.id,
     authUser.id,
     requested_start,
     requested_end,
     reason,
-    guest_count,
+    occupancy?.adults ?? guest_count,
   );
 
   if (!result.success) {
@@ -218,6 +231,26 @@ export async function createBooking(req: Request, res: Response): Promise<void> 
   const authReq = req as AuthRequest;
   const userId = authReq.user?.id ?? authReq.userId;
   const idempotencyKey = req.headers['idempotency-key'];
+
+  // ── Occupancy validation ────────────────────────────────────────────────────
+  // Enforce integer bounds and shared semantics before the service (and thus
+  // the listing capacity check) ever sees the guest count.
+  const occupancyInput = {
+    guest_count: (req.body as { guest_count?: unknown })?.guest_count,
+    adults: (req.body as { adults?: unknown })?.adults,
+    children: (req.body as { children?: unknown })?.children,
+  };
+  const occupancyParsed = parseOccupancy(occupancyInput);
+  if (!occupancyParsed.success) {
+    res.status(400).json({ error: occupancyParsed.error });
+    return;
+  }
+  req.body = {
+    ...req.body,
+    guest_count: occupancyParsed.data.adults + occupancyParsed.data.children,
+    adults: occupancyParsed.data.adults,
+    children: occupancyParsed.data.children,
+  };
 
   // ── Idempotency check ───────────────────────────────────────────────────────
   if (idempotencyKey) {
@@ -674,6 +707,17 @@ export async function getBookingReceipt(req: Request, res: Response): Promise<vo
   const receiptableStatuses = ['Confirmed', 'Completed', 'confirmed', 'completed'];
   if (!booking.status || !receiptableStatuses.includes(booking.status)) {
     res.status(422).json({ error: 'Receipt is only available for confirmed or completed bookings' });
+    return;
+  }
+
+  // Prefer the stored immutable snapshot so regeneration cannot alter the
+  // financial data that was settled at booking time.
+  const stored = await getStoredReceipt(req.params.id);
+  if (stored.success && stored.data) {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="receipt-${booking.id}.pdf"`);
+    res.setHeader('Content-Length', stored.data.length);
+    res.send(stored.data);
     return;
   }
 

@@ -14,6 +14,56 @@ function namespaced(key: string): string {
   return `${REDIS_KEY_PREFIX}:cache:${key}`;
 }
 
+/**
+ * Occupancy semantics used when building occupancy-aware cache keys.
+ * Adults and children are tracked separately so a quote for 2 adults + 1 child
+ * is never served for 3 adults (fees and capacity differ).
+ */
+export interface OccupancyKeyParts {
+  adults: number;
+  children?: number;
+  infants?: number;
+}
+
+/**
+ * Build a stable, collision-resistant hash fragment for an occupancy.
+ * Values are normalised to non-negative integers so that `2`, `2.0`, and
+ * `"2"`-like inputs map to the same key, while distinct guest counts never do.
+ *
+ * @param occupancy - Guest counts to encode
+ * @returns A short deterministic string, e.g. `a2-c1-i0`
+ * @example
+ * occupancyHash({ adults: 2, children: 1 }); // 'a2-c1-i0'
+ */
+export function occupancyHash(occupancy: OccupancyKeyParts): string {
+  const norm = (value: number | undefined): number => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+    return Math.max(0, Math.trunc(value));
+  };
+  return `a${norm(occupancy.adults)}-c${norm(occupancy.children)}-i${norm(occupancy.infants)}`;
+}
+
+/**
+ * Build an occupancy-aware cache key so quotes and search results are keyed by
+ * guest count and cannot be reused across different occupancies.
+ *
+ * @param namespace - Logical cache domain, e.g. `quote` or `search`
+ * @param parts - Key segments (property id, date range, filters, ...)
+ * @param occupancy - Guest counts that affect eligibility and price
+ * @returns A namespaced cache key including the occupancy hash
+ * @example
+ * buildOccupancyKey('quote', ['prop_1', '2025-01-01:2025-01-05'], { adults: 2 });
+ * // 'quote:prop_1:2025-01-01:2025-01-05:occ:a2-c0-i0'
+ */
+export function buildOccupancyKey(
+  namespace: string,
+  parts: ReadonlyArray<string | number>,
+  occupancy: OccupancyKeyParts,
+): string {
+  const segments = [namespace, ...parts.map((part) => String(part)), 'occ', occupancyHash(occupancy)];
+  return segments.join(':');
+}
+
 async function ensureConnected(): Promise<void> {
   try {
     await connectRedis();

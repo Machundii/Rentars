@@ -1,19 +1,32 @@
 /**
- * Receipt service — generates a PDF receipt for a confirmed / completed
- * booking using the zero-dependency PdfBuilder utility (no npm installs).
+ * Receipt service — generates an immutable PDF receipt for a confirmed /
+ * completed booking using the zero-dependency PdfBuilder utility.
  *
- * Included fields: property, stay dates, itemised price breakdown,
- * platform fee, total, booking id, and the on-chain escrow reference.
+ * Receipts are built from a canonical, versioned financial snapshot that is
+ * derived from settled payment / ledger rows (never from mutable listing
+ * prices). The snapshot is persisted once per booking (keyed by booking id)
+ * and reused on every regeneration, so retries and re-downloads can never
+ * alter the financial data or trigger duplicate payments.
+ *
+ * Access is restricted to booking participants (tenant / host / admin) via
+ * the booking authorization helper.
  */
 
 import { supabase } from '@/config/supabase.js';
 import { PdfBuilder } from '@/utils/pdf.js';
+import { assertBookingParticipant } from './bookingAuthorization.js';
 import type { ServiceResponse } from './index.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PLATFORM_FEE_RATE = 0.1; // 10 %
+const PLATFORM_FEE_RATE = 0.1; // 10 % — fallback only when ledger has no fee row
 const EXPLORER_BASE = 'https://stellar.expert/explorer/public/tx';
+const RECEIPT_SCHEMA_VERSION = 1;
+const DEFAULT_POLICY_VERSION = 'v1';
+const DEFAULT_NETWORK = 'stellar';
+const DEFAULT_CURRENCY = 'USDC';
+const MAX_RENDER_ATTEMPTS = 3;
+const RECEIPTS_TABLE = 'booking_receipts';
 
 // Layout (points, y measured from top of A4)
 const ML = 60;
@@ -59,6 +72,51 @@ export interface ReceiptData {
   rateStale?:       boolean;       // whether the rate was stale at booking time
 }
 
+/**
+ * Canonical, immutable financial snapshot for a booking receipt.
+ *
+ * Every monetary field is captured from settled payment / ledger records at
+ * snapshot time and is never recomputed afterwards. `snapshotVersion` and
+ * `policyVersion` record which rules applied when the booking was made.
+ */
+export interface ReceiptSnapshot {
+  schemaVersion:   number;   // receipt snapshot schema version
+  snapshotVersion: number;   // monotonically increasing per booking
+  policyVersion:   string;   // booking/pricing policy version at booking time
+  bookingId:       string;
+  settledAt:       string;   // ISO timestamp of the settled ledger entry
+  currency:        string;   // settlement currency, e.g. "USDC"
+  network:         string;   // settlement network, e.g. "stellar"
+  transactionRef?: string;   // on-chain tx hash / ledger reference
+  escrowId?:       string;
+  onChainId?:      number;
+  pricePerNight:   number;
+  nights:          number;
+  subtotal:        number;
+  platformFee:     number;
+  total:           number;
+  guestCount:      number;
+  adults?:         number;
+  children?:       number;
+  status:          string;
+  propertyTitle:   string;
+  propertyAddress: string;
+  checkIn:         string;
+  checkOut:        string;
+  tenantName?:     string;
+  tenantEmail?:    string;
+  createdAt:       string;
+  displayCurrency?: string;
+  displayAmount?:   number | null;
+  rateTimestampMs?: number;
+  rateStale?:       boolean;
+}
+
+export interface ReceiptAccessContext {
+  userId: string;
+  role?:  string;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
@@ -89,18 +147,93 @@ function fmtDate(iso: string): string {
   });
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** Convert a persisted snapshot row back into ReceiptData for rendering. */
+function snapshotToReceiptData(s: ReceiptSnapshot): ReceiptData {
+  return {
+    bookingId:       s.bookingId,
+    propertyTitle:   s.propertyTitle,
+    propertyAddress: s.propertyAddress,
+    checkIn:         s.checkIn,
+    checkOut:        s.checkOut,
+    nights:          s.nights,
+    pricePerNight:   s.pricePerNight,
+    subtotal:        s.subtotal,
+    platformFee:     s.platformFee,
+    total:           s.total,
+    guestCount:      s.guestCount,
+    status:          s.status,
+    tenantName:      s.tenantName,
+    tenantEmail:     s.tenantEmail,
+    escrowId:        s.escrowId,
+    onChainId:       s.onChainId,
+    createdAt:       s.createdAt,
+    displayCurrency: s.displayCurrency,
+    displayAmount:   s.displayAmount ?? null,
+    rateTimestampMs: s.rateTimestampMs,
+    rateStale:       s.rateStale,
+  };
+}
+
 // ─── Data layer ───────────────────────────────────────────────────────────────
 
-export async function fetchReceiptData(
-  bookingId: string,
-): Promise<ServiceResponse<ReceiptData>> {
-  if (!bookingId) return { success: false, error: 'Booking ID is required' };
+type BookingRow = {
+  id: string; property_id: string; tenant_id: string;
+  check_in: string; check_out: string; guest_count: number;
+  adults?: number | null; children?: number | null;
+  total_price: number; status: string; escrow_id?: string;
+  on_chain_id?: number; created_at: string;
+  policy_version?: string | null;
+  display_currency?: string | null;
+  display_amount?: number | null;
+  rate_timestamp_ms?: number | null;
+  rate_stale?: boolean | null;
+  properties: { title: string; address?: string; city?: string; country?: string; price_per_night?: number } | null;
+};
 
+type LedgerRow = {
+  amount?: number | null;
+  fee_amount?: number | null;
+  currency?: string | null;
+  network?: string | null;
+  transaction_ref?: string | null;
+  settled_at?: string | null;
+  status?: string | null;
+};
+
+/**
+ * Load the canonical settled ledger row for a booking, if one exists.
+ * Returns null when no settled payment record is available.
+ */
+async function fetchSettledLedger(bookingId: string): Promise<LedgerRow | null> {
+  const { data, error } = await supabase
+    .from('payments')
+    .select('amount, fee_amount, currency, network, transaction_ref, settled_at, status')
+    .eq('booking_id', bookingId)
+    .in('status', ['settled', 'completed', 'released'])
+    .order('settled_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data as LedgerRow;
+}
+
+/**
+ * Build a canonical snapshot from settled records. This is the ONLY place
+ * financial values are derived; once persisted the snapshot is immutable.
+ */
+async function buildSnapshot(bookingId: string): Promise<ServiceResponse<ReceiptSnapshot>> {
   const { data: booking, error } = await supabase
     .from('bookings')
     .select(
       `id, property_id, tenant_id, check_in, check_out, guest_count,
-       total_price, status, escrow_id, on_chain_id, created_at,
+       adults, children, total_price, status, escrow_id, on_chain_id,
+       created_at, policy_version, display_currency, display_amount,
+       rate_timestamp_ms, rate_stale,
        properties ( title, address, city, country, price_per_night )`,
     )
     .eq('id', bookingId)
@@ -108,23 +241,27 @@ export async function fetchReceiptData(
 
   if (error || !booking) return { success: false, error: 'Booking not found' };
 
-  const b = booking as {
-    id: string; property_id: string; tenant_id: string;
-    check_in: string; check_out: string; guest_count: number;
-    total_price: number; status: string; escrow_id?: string;
-    on_chain_id?: number; created_at: string;
-    properties: { title: string; address?: string; city?: string; country?: string; price_per_night?: number } | null;
-  };
+  const b = booking as BookingRow;
+  const prop = b.properties;
+  const nights = calcNights(b.check_in, b.check_out);
 
-  const prop         = b.properties;
+  const ledger = await fetchSettledLedger(bookingId);
+
+  // Prefer settled ledger values; fall back to booking totals only when no
+  // settled record exists yet (e.g. legacy bookings).
   const pricePerNight = prop?.price_per_night ?? 0;
-  const nights       = calcNights(b.check_in, b.check_out);
-  const subtotal     = pricePerNight * nights;
-  const platformFee  = Math.round(subtotal * PLATFORM_FEE_RATE * 100) / 100;
-  const total        = b.total_price ?? subtotal + platformFee;
-  const address      = [prop?.address, prop?.city, prop?.country].filter(Boolean).join(', ');
+  const subtotal = ledger?.amount != null
+    ? round2(ledger.amount)
+    : round2(pricePerNight * nights);
+  const platformFee = ledger?.fee_amount != null
+    ? round2(ledger.fee_amount)
+    : round2(subtotal * PLATFORM_FEE_RATE);
+  const total = b.total_price != null
+    ? round2(b.total_price)
+    : round2(subtotal + platformFee);
 
-  // Fetch tenant display name and email for participant details on the receipt
+  const address = [prop?.address, prop?.city, prop?.country].filter(Boolean).join(', ');
+
   let tenantName:  string | undefined;
   let tenantEmail: string | undefined;
   if (b.tenant_id) {
@@ -136,40 +273,147 @@ export async function fetchReceiptData(
     tenantEmail = (userResult.data   as { email?: string }         | null)?.email         ?? undefined;
   }
 
-  // Retrieve display-currency snapshot stored at booking time (informational only)
-  const bookingRow = b as typeof b & {
-    display_currency?: string | null;
-    display_amount?: number | null;
-    rate_timestamp_ms?: number | null;
-    rate_stale?: boolean | null;
+  const snapshot: ReceiptSnapshot = {
+    schemaVersion:   RECEIPT_SCHEMA_VERSION,
+    snapshotVersion: 1,
+    policyVersion:   b.policy_version ?? DEFAULT_POLICY_VERSION,
+    bookingId:       b.id,
+    settledAt:       ledger?.settled_at ?? b.created_at,
+    currency:        ledger?.currency ?? DEFAULT_CURRENCY,
+    network:         ledger?.network ?? DEFAULT_NETWORK,
+    transactionRef:  ledger?.transaction_ref ?? undefined,
+    escrowId:        b.escrow_id,
+    onChainId:       b.on_chain_id,
+    pricePerNight,
+    nights,
+    subtotal,
+    platformFee,
+    total,
+    guestCount:      b.guest_count,
+    adults:          b.adults ?? undefined,
+    children:        b.children ?? undefined,
+    status:          b.status,
+    propertyTitle:   prop?.title ?? 'Rental Property',
+    propertyAddress: address,
+    checkIn:         b.check_in,
+    checkOut:        b.check_out,
+    tenantName,
+    tenantEmail,
+    createdAt:       b.created_at,
+    displayCurrency: b.display_currency ?? undefined,
+    displayAmount:   b.display_amount ?? null,
+    rateTimestampMs: b.rate_timestamp_ms ?? undefined,
+    rateStale:       b.rate_stale ?? undefined,
   };
 
+  return { success: true, data: snapshot };
+}
+
+/**
+ * Return the persisted snapshot for a booking, creating it once if absent.
+ * Regeneration is idempotent: an existing snapshot is always returned as-is
+ * and never recomputed, so retries cannot mutate financial data.
+ */
+export async function getOrCreateSnapshot(
+  bookingId: string,
+): Promise<ServiceResponse<ReceiptSnapshot>> {
+  if (!bookingId) return { success: false, error: 'Booking ID is required' };
+
+  const { data: existing, error: readErr } = await supabase
+    .from(RECEIPTS_TABLE)
+    .select('snapshot')
+    .eq('booking_id', bookingId)
+    .maybeSingle();
+
+  if (!readErr && existing?.snapshot) {
+    return { success: true, data: existing.snapshot as ReceiptSnapshot };
+  }
+
+  const built = await buildSnapshot(bookingId);
+  if (!built.success || !built.data) return built;
+
+  // Insert-if-absent; on conflict keep the first persisted snapshot.
+  const { data: inserted, error: insertErr } = await supabase
+    .from(RECEIPTS_TABLE)
+    .upsert(
+      {
+        booking_id: bookingId,
+        snapshot: built.data,
+        schema_version: built.data.schemaVersion,
+        policy_version: built.data.policyVersion,
+        created_at: new Date().toISOString(),
+      },
+      { onConflict: 'booking_id', ignoreDuplicates: true },
+    )
+    .select('snapshot')
+    .maybeSingle();
+
+  if (insertErr) {
+    // Race: another writer may have persisted first — re-read.
+    const { data: raced } = await supabase
+      .from(RECEIPTS_TABLE)
+      .select('snapshot')
+      .eq('booking_id', bookingId)
+      .maybeSingle();
+    if (raced?.snapshot) return { success: true, data: raced.snapshot as ReceiptSnapshot };
+    return { success: false, error: 'Failed to persist receipt snapshot' };
+  }
+
+  const persisted = (inserted?.snapshot as ReceiptSnapshot | undefined) ?? built.data;
+  return { success: true, data: persisted };
+}
+
+/**
+ * Fetch receipt data for rendering. Returns the immutable snapshot values.
+ */
+export async function fetchReceiptData(
+  bookingId: string,
+): Promise<ServiceResponse<ReceiptData>> {
+  const snap = await getOrCreateSnapshot(bookingId);
+  if (!snap.success || !snap.data) return { success: false, error: snap.error };
+  return { success: true, data: snapshotToReceiptData(snap.data) };
+}
+
+/**
+ * Render the receipt PDF with bounded retries. Rendering is pure and never
+ * touches financial data, so retries are safe and cannot trigger payments.
+ */
+export async function renderReceiptPdf(
+  bookingId: string,
+): Promise<ServiceResponse<Buffer>> {
+  const snap = await getOrCreateSnapshot(bookingId);
+  if (!snap.success || !snap.data) return { success: false, error: snap.error };
+
+  const data = snapshotToReceiptData(snap.data);
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_RENDER_ATTEMPTS; attempt++) {
+    try {
+      return { success: true, data: generateReceiptPdf(data) };
+    } catch (err) {
+      lastError = err;
+    }
+  }
   return {
-    success: true,
-    data: {
-      bookingId:       b.id,
-      propertyTitle:   prop?.title ?? 'Rental Property',
-      propertyAddress: address,
-      checkIn:         b.check_in,
-      checkOut:        b.check_out,
-      nights,
-      pricePerNight,
-      subtotal,
-      platformFee,
-      total,
-      guestCount:  b.guest_count,
-      status:      b.status,
-      tenantName,
-      tenantEmail,
-      escrowId:    b.escrow_id,
-      onChainId:   b.on_chain_id,
-      createdAt:   b.created_at,
-      displayCurrency: bookingRow.display_currency ?? undefined,
-      displayAmount:   bookingRow.display_amount   ?? null,
-      rateTimestampMs: bookingRow.rate_timestamp_ms ?? undefined,
-      rateStale:       bookingRow.rate_stale        ?? undefined,
-    },
+    success: false,
+    error: `Receipt rendering failed: ${lastError instanceof Error ? lastError.message : 'unknown error'}`,
   };
+}
+
+/**
+ * Access-controlled receipt download. Only booking participants (tenant,
+ * host, or admin) may obtain the PDF.
+ */
+export async function downloadReceipt(
+  bookingId: string,
+  ctx: ReceiptAccessContext,
+): Promise<ServiceResponse<Buffer>> {
+  if (!bookingId) return { success: false, error: 'Booking ID is required' };
+  if (!ctx?.userId) return { success: false, error: 'Unauthorized' };
+
+  const auth = await assertBookingParticipant(bookingId, ctx.userId, ctx.role);
+  if (!auth.success) return { success: false, error: auth.error ?? 'Forbidden' };
+
+  return renderReceiptPdf(bookingId);
 }
 
 // ─── PDF generation ───────────────────────────────────────────────────────────
@@ -232,10 +476,11 @@ export function generateReceiptPdf(data: ReceiptData): Buffer {
 
   // ── Stay dates ────────────────────────────────────────────────────────────
   const col = W / 3;
+  const guestLabel = data.guestCount === 1 ? '1 guest' : `${data.guestCount} guests`;
   const dateFields: [string, string][] = [
     ['Check-in',  fmtDate(data.checkIn)],
     ['Check-out', fmtDate(data.checkOut)],
-    ['Guests',    String(data.guestCount)],
+    ['Guests',    guestLabel],
   ];
   dateFields.forEach(([label, val], i) => {
     const x = ML + i * col;

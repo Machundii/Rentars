@@ -56,15 +56,47 @@ export interface EscrowStatus {
   updatedAt: string;
 }
 
+/**
+ * Identity of the provider/account that is expected to have emitted a
+ * callback event. Used by the callback service to reject events that were
+ * produced by an unexpected provider or account before any state changes.
+ */
+export interface ProviderIdentity {
+  /** Expected provider identifier (e.g. TrustlessWork tenant/application id). */
+  providerId: string;
+  /** Expected provider account address (Stellar account / contract address). */
+  accountAddress: string;
+}
+
+/**
+ * Result of verifying a callback's provider identity against the expected
+ * identity. `ok` is true only when both the provider id and the account
+ * address match exactly.
+ */
+export interface ProviderIdentityVerification {
+  ok: boolean;
+  /** Machine-readable reason when `ok` is false. */
+  reason?: 'missing_provider_id' | 'missing_account_address' | 'provider_mismatch' | 'account_mismatch';
+}
+
 // ─── Client ───────────────────────────────────────────────────────────────────
 
 export class TrustlessWorkClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
+  private readonly providerId: string;
+  private readonly accountAddress: string;
 
-  constructor(baseUrl: string, apiKey: string) {
+  constructor(
+    baseUrl: string,
+    apiKey: string,
+    providerId: string = process.env.TRUSTLESS_WORK_PROVIDER_ID ?? '',
+    accountAddress: string = process.env.TRUSTLESS_WORK_ACCOUNT_ADDRESS ?? '',
+  ) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.apiKey = apiKey;
+    this.providerId = providerId;
+    this.accountAddress = accountAddress;
   }
 
   private async request<T>(
@@ -242,6 +274,48 @@ export class TrustlessWorkClient {
       amount: booking.total_price.toString(),
     };
   }
+
+  // ─── Provider Identity Verification ──────────────────────────────────────────
+
+  /**
+   * The provider identity this client is configured to trust. Callback
+   * handlers must compare the identity carried by an incoming event against
+   * this value before applying any state changes.
+   */
+  getExpectedProviderIdentity(): ProviderIdentity {
+    return {
+      providerId: this.providerId,
+      accountAddress: this.accountAddress,
+    };
+  }
+
+  /**
+   * Verify that a callback event was emitted by the expected provider and
+   * account. Comparison is exact (case-sensitive) to avoid accepting
+   * look-alike identifiers.
+   *
+   * @param eventProviderId - Provider id carried by the callback event.
+   * @param eventAccountAddress - Account address carried by the callback event.
+   * @returns Verification result; `ok` is true only on a full match.
+   */
+  verifyProviderIdentity(
+    eventProviderId: string | undefined | null,
+    eventAccountAddress: string | undefined | null,
+  ): ProviderIdentityVerification {
+    if (!eventProviderId) {
+      return { ok: false, reason: 'missing_provider_id' };
+    }
+    if (!eventAccountAddress) {
+      return { ok: false, reason: 'missing_account_address' };
+    }
+    if (eventProviderId !== this.providerId) {
+      return { ok: false, reason: 'provider_mismatch' };
+    }
+    if (eventAccountAddress !== this.accountAddress) {
+      return { ok: false, reason: 'account_mismatch' };
+    }
+    return { ok: true };
+  }
 }
 
 // ─── Singleton ────────────────────────────────────────────────────────────────
@@ -249,4 +323,6 @@ export class TrustlessWorkClient {
 export const trustlessWorkClient = new TrustlessWorkClient(
   process.env.TRUSTLESS_WORK_API_URL ?? 'https://api.trustlesswork.com',
   process.env.TRUSTLESS_WORK_API_KEY ?? '',
+  process.env.TRUSTLESS_WORK_PROVIDER_ID ?? '',
+  process.env.TRUSTLESS_WORK_ACCOUNT_ADDRESS ?? '',
 );

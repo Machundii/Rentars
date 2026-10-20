@@ -25,24 +25,53 @@ const router = Router();
 
 // ── Webhook (unauthenticated, raw-body capture) ───────────────────────────────
 
+/** Maximum accepted callback payload size (bytes). */
+const CALLBACK_BODY_LIMIT = '64kb';
+
 /**
  * Middleware: capture raw request body as a Buffer and attach to `req.rawBody`
  * before handing off to the JSON body-parser.  Required for HMAC verification.
+ *
+ * Enforces a hard size limit so oversized/forged payloads are rejected before
+ * any parsing or signature work happens.
  */
-function captureRawBody(req: Request, _res: Response, next: NextFunction): void {
+function captureRawBody(req: Request, res: Response, next: NextFunction): void {
   const chunks: Buffer[] = [];
-  req.on('data', (chunk: Buffer) => chunks.push(chunk));
+  let size = 0;
+  let aborted = false;
+
+  req.on('data', (chunk: Buffer) => {
+    if (aborted) return;
+    size += chunk.length;
+    if (size > 64 * 1024) {
+      aborted = true;
+      res.status(413).json({ error: 'payload_too_large' });
+      req.destroy();
+      return;
+    }
+    chunks.push(chunk);
+  });
   req.on('end', () => {
+    if (aborted) return;
     (req as Request & { rawBody: Buffer }).rawBody = Buffer.concat(chunks);
     next();
   });
-  req.on('error', next);
+  req.on('error', (err) => {
+    if (aborted) return;
+    aborted = true;
+    next(err);
+  });
 }
 
+// NOTE: registered before `router.use(authenticate)` below so the provider
+// webhook stays unauthenticated. Raw bytes are captured first, then JSON-parsed.
 router.post(
   '/callback',
   captureRawBody,
-  json(), // parse body after raw capture
+  json({ limit: CALLBACK_BODY_LIMIT, verify: (req, _res, buf) => {
+    // Ensure the parsed body always has access to the exact wire bytes.
+    (req as Request & { rawBody: Buffer }).rawBody = buf;
+  } }),
   handlePaymentCallback,
 );
 

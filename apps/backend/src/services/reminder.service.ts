@@ -8,7 +8,17 @@
  *
  * Idempotent: a `booking_reminders` row is inserted (or detected via the
  * unique constraint) before sending so the job can run repeatedly without
- * ever delivering a duplicate.
+ * ever delivering a duplicate. Each reminder is keyed deterministically by
+ * booking + event + channel, so worker restarts and concurrent scheduler
+ * instances can never deliver the same reminder twice.
+ *
+ * Timezone-aware: reminder windows are computed against the property's local
+ * timezone (falling back to UTC), so a "24 h before check-in" reminder fires
+ * at the intended local time rather than at an arbitrary UTC offset.
+ *
+ * Stale-job safety: when a booking is cancelled or its dates change, any
+ * pending reminder rows for that booking are cancelled (deleted from the
+ * ledger) so no stale reminder is ever delivered.
  *
  * Quiet hours: if the recipient's current local time falls inside their
  * configured quiet window the reminder is deferred — the row is NOT marked
@@ -37,10 +47,35 @@ export type ReminderType =
   | 'dispute_unresolved_tenant'
   | 'dispute_unresolved_host';
 
+/** Logical reminder events, independent of recipient role. */
+export type ReminderEvent = 'check_in' | 'check_out' | 'payment_deadline' | 'dispute_unresolved';
+
+/** Delivery channels a reminder may be sent over. */
+export type ReminderChannel = 'in_app' | 'email';
+
 export interface ReminderResult {
   sent:     number;
   skipped:  number;
   errors:   number;
+  /** Pending jobs cancelled because the booking changed or was cancelled. */
+  cancelled: number;
+}
+
+/**
+ * A scheduled reminder job. `key` is deterministic for
+ * (booking, event, channel) so re-scheduling the same job is a no-op and
+ * worker restarts cannot create duplicates.
+ */
+export interface ReminderJob {
+  key:        string;
+  bookingId:  string;
+  event:      ReminderEvent;
+  channel:    ReminderChannel;
+  /** Absolute instant (UTC) at which the reminder should fire. */
+  fireAt:     Date;
+  /** Property-local wall-clock time the reminder is intended for. */
+  localTime:  string;
+  timezone:   string;
 }
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -134,6 +169,115 @@ export function isInQuietHours(
   }
 }
 
+// ─── Timezone helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Build a deterministic idempotency key for a reminder job.
+ * Stable across worker restarts and concurrent scheduler instances.
+ */
+export function reminderKey(
+  bookingId: string,
+  event:     ReminderEvent,
+  channel:   ReminderChannel,
+): string {
+  return `${bookingId}:${event}:${channel}`;
+}
+
+/**
+ * Return the wall-clock parts of `instant` in `timeZone`.
+ * Falls back to UTC when the timezone is invalid.
+ */
+function zonedParts(instant: Date, timeZone: string): {
+  year: number; month: number; day: number; hour: number; minute: number;
+} {
+  const safeTz = isValidTimeZone(timeZone) ? timeZone : 'UTC';
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: safeTz,
+    year:     'numeric',
+    month:    '2-digit',
+    day:      '2-digit',
+    hour:     '2-digit',
+    minute:   '2-digit',
+    hour12:   false,
+  }).formatToParts(instant);
+
+  const get = (t: string): number =>
+    parseInt(parts.find(p => p.type === t)?.value ?? '0', 10);
+
+  return {
+    year:   get('year'),
+    month:  get('month'),
+    day:    get('day'),
+    hour:   get('hour') % 24,
+    minute: get('minute'),
+  };
+}
+
+function isValidTimeZone(tz: string | null | undefined): tz is string {
+  if (!tz) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Compute the UTC instant corresponding to a wall-clock time in `timeZone`.
+ * Uses an iterative offset correction so DST transitions are handled.
+ */
+export function zonedTimeToUtc(
+  year:     number,
+  month:    number,
+  day:      number,
+  hour:     number,
+  minute:   number,
+  timeZone: string,
+): Date {
+  const safeTz = isValidTimeZone(timeZone) ? timeZone : 'UTC';
+  // Initial guess: treat the wall-clock as UTC.
+  let guess = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+
+  // Two correction passes converge even across DST boundaries.
+  for (let i = 0; i < 2; i++) {
+    const p = zonedParts(new Date(guess), safeTz);
+    const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, 0, 0);
+    const target = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+    guess += target - asUtc;
+  }
+
+  return new Date(guess);
+}
+
+/**
+ * Parse a booking date (`YYYY-MM-DD` or ISO timestamp) into the property-local
+ * calendar date. Returns null when unparseable.
+ */
+function parseBookingDate(value: string | null | undefined): { year: number; month: number; day: number } | null {
+  if (!value) return null;
+  const datePart = value.slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(datePart);
+  if (!m) return null;
+  return { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) };
+}
+
+/**
+ * Compute the instant `hoursBefore` hours before the property-local check-in
+ * (or check-out) date. Check-in/out are treated as local midnight of the
+ * booking date; the lead time is subtracted in absolute time.
+ */
+export function computeReminderInstant(
+  bookingDate: string | null | undefined,
+  hoursBefore: number,
+  timeZone:    string,
+): Date | null {
+  const date = parseBookingDate(bookingDate);
+  if (!date) return null;
+  const localMidnight = zonedTimeToUtc(date.year, date.month, date.day, 0, 0, timeZone);
+  return new Date(localMidnight.getTime() - hoursBefore * 3_600_000);
+}
+
 // ─── DB helpers ───────────────────────────────────────────────────────────────
 
 /**
@@ -141,15 +285,21 @@ export function isInQuietHours(
  * true on success, throws on unexpected errors.
  *
  * Uses atomic INSERT … ON CONFLICT … DO NOTHING to prevent race conditions
- * when multiple scheduler invocations run concurrently.
+ * when multiple scheduler invocations run concurrently. The `reminder_key`
+ * column carries the deterministic (booking, event, channel) idempotency key.
  */
 export async function markReminderSent(
   bookingId: string,
   reminderType: ReminderType,
+  reminderKeyValue?: string,
 ): Promise<boolean> {
   const { error } = await supabase
     .from('booking_reminders')
-    .insert({ booking_id: bookingId, reminder_type: reminderType });
+    .insert({
+      booking_id:    bookingId,
+      reminder_type: reminderType,
+      reminder_key:  reminderKeyValue ?? reminderType,
+    });
 
   if (!error) return true;
   if (error.code === '23505') return false; // unique_violation — already sent
@@ -158,19 +308,47 @@ export async function markReminderSent(
 
 /**
  * Check whether a reminder has already been sent (without inserting).
+ * Checks the deterministic key first, falling back to the legacy type.
  */
 export async function isReminderSent(
   bookingId: string,
   reminderType: ReminderType,
+  reminderKeyValue?: string,
 ): Promise<boolean> {
+  const key = reminderKeyValue ?? reminderType;
   const { data } = await supabase
     .from('booking_reminders')
     .select('id')
     .eq('booking_id', bookingId)
-    .eq('reminder_type', reminderType)
+    .or(`reminder_key.eq.${key},reminder_type.eq.${reminderType}`)
     .maybeSingle();
 
   return !!data;
+}
+
+/**
+ * Cancel (delete) all pending reminder ledger rows for a booking so that a
+ * cancelled or rescheduled booking never receives a stale reminder.
+ *
+ * Optionally restrict to a single event (e.g. only check-in reminders when
+ * the check-in date changed).
+ */
+export async function cancelBookingReminders(
+  bookingId: string,
+  event?:    ReminderEvent,
+): Promise<number> {
+  let query = supabase
+    .from('booking_reminders')
+    .delete()
+    .eq('booking_id', bookingId);
+
+  if (event) {
+    query = query.like('reminder_key', `%:${event}:%`);
+  }
+
+  const { data, error } = await query.select('id');
+  if (error) throw new Error(error.message);
+  return Array.isArray(data) ? data.length : 0;
 }
 
 async function getUserEmail(userId: string): Promise<string | null> {
@@ -199,16 +377,20 @@ async function sendReminderIfAllowed(
   userId:    string,
   bookingId: string,
   data:      Record<string, unknown>,
+  channel:   ReminderChannel = 'in_app',
 ): Promise<boolean> {
   const prefs = await getPreferences(userId);
   if (prefs.success && prefs.data) {
     if (prefs.data.notification_types['booking_reminder'] === false) return false;
+    // Optional email channel must be explicitly enabled to receive email.
+    if (channel === 'email' && prefs.data.email_enabled === false) return false;
   }
 
-  const email  = await getUserEmail(userId);
+  const email  = channel === 'email' ? await getUserEmail(userId) : null;
   const result = await createNotificationWithEmail(userId, 'booking_reminder', {
     ...data,
     booking_id: bookingId,
+    channel,
     userEmail:  email ?? undefined,
   });
 
@@ -232,10 +414,15 @@ async function processOneReminder(
   bookingId:    string,
   userId:       string,
   reminderType: ReminderType,
+  event:        ReminderEvent,
   data:         Record<string, unknown>,
   result:       ReminderResult,
+  channel:      ReminderChannel = 'in_app',
 ): Promise<void> {
-  const alreadySent = await isReminderSent(bookingId, reminderType);
+  const key = reminderKey(bookingId, event, channel);
+
+  // Worker-restart safety: consult the ledger before doing any work.
+  const alreadySent = await isReminderSent(bookingId, reminderType, key);
   if (alreadySent) {
     result.skipped++;
     return;
@@ -249,13 +436,13 @@ async function processOneReminder(
   }
 
   // Atomic gate: mark first to prevent concurrent duplicate delivery
-  const marked = await markReminderSent(bookingId, reminderType);
+  const marked = await markReminderSent(bookingId, reminderType, key);
   if (!marked) {
     result.skipped++; // lost the race to a concurrent scheduler instance
     return;
   }
 
-  const sent = await sendReminderIfAllowed(userId, bookingId, data);
+  const sent = await sendReminderIfAllowed(userId, bookingId, data, channel);
   sent ? result.sent++ : result.skipped++;
 }
 
@@ -297,13 +484,13 @@ async function processCheckInReminders(
 
     try {
       await processOneReminder(booking.id, booking.tenant_id, 'checkin_tenant',
-        { ...notifData, role: 'tenant', event: 'check_in' }, result);
+        'check_in', { ...notifData, role: 'tenant', event: 'check_in' }, result);
     } catch { result.errors++; }
 
     if (ownerId) {
       try {
         await processOneReminder(booking.id, ownerId, 'checkin_host',
-          { ...notifData, role: 'host', event: 'check_in' }, result);
+          'check_in', { ...notifData, role: 'host', event: 'check_in' }, result);
       } catch { result.errors++; }
     }
   }
@@ -345,13 +532,13 @@ async function processCheckOutReminders(
 
     try {
       await processOneReminder(booking.id, booking.tenant_id, 'checkout_tenant',
-        { ...notifData, role: 'tenant', event: 'check_out' }, result);
+        'check_out', { ...notifData, role: 'tenant', event: 'check_out' }, result);
     } catch { result.errors++; }
 
     if (ownerId) {
       try {
         await processOneReminder(booking.id, ownerId, 'checkout_host',
-          { ...notifData, role: 'host', event: 'check_out' }, result);
+          'check_out', { ...notifData, role: 'host', event: 'check_out' }, result);
       } catch { result.errors++; }
     }
   }
@@ -403,7 +590,7 @@ async function processPaymentDeadlineReminders(
 
     try {
       await processOneReminder(booking.id, booking.tenant_id, 'payment_deadline_tenant',
-        { ...notifData, role: 'tenant' }, result);
+        'payment_deadline', { ...notifData, role: 'tenant' }, result);
     } catch { result.errors++; }
   }
 }
@@ -447,16 +634,81 @@ async function processDisputeReminders(
 
     try {
       await processOneReminder(booking.id, booking.tenant_id, 'dispute_unresolved_tenant',
-        { ...notifData, role: 'tenant' }, result);
+        'dispute_unresolved', { ...notifData, role: 'tenant' }, result);
     } catch { result.errors++; }
 
     if (ownerId) {
       try {
         await processOneReminder(booking.id, ownerId, 'dispute_unresolved_host',
-          { ...notifData, role: 'host' }, result);
+          'dispute_unresolved', { ...notifData, role: 'host' }, result);
       } catch { result.errors++; }
     }
   }
+}
+
+// ─── Scheduling helpers ───────────────────────────────────────────────────────
+
+/**
+ * Build the set of reminder jobs for a booking, scheduled against the
+ * property's local timezone. Jobs are deduplicated by their deterministic key.
+ */
+export function buildReminderJobs(
+  booking: {
+    id:         string;
+    check_in:   string;
+    check_out:  string;
+    created_at?: string;
+  },
+  timezone: string,
+  lead:     { checkIn: number; checkOut: number; payment: number },
+): ReminderJob[] {
+  const tz = isValidTimeZone(timezone) ? timezone : 'UTC';
+  const jobs: ReminderJob[] = [];
+  const seen = new Set<string>();
+
+  const add = (event: ReminderEvent, fireAt: Date | null): void => {
+    if (!fireAt) return;
+    for (const channel of ['in_app', 'email'] as ReminderChannel[]) {
+      const key = reminderKey(booking.id, event, channel);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const p = zonedParts(fireAt, tz);
+      jobs.push({
+        key,
+        bookingId: booking.id,
+        event,
+        channel,
+        fireAt,
+        localTime: `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`,
+        timezone:  tz,
+      });
+    }
+  };
+
+  add('check_in',  computeReminderInstant(booking.check_in,  lead.checkIn,  tz));
+  add('check_out', computeReminderInstant(booking.check_out, lead.checkOut, tz));
+
+  if (booking.created_at) {
+    const created = new Date(booking.created_at);
+    if (!Number.isNaN(created.getTime())) {
+      // Payment deadline = 48 h after creation; fire `payment` hours before it.
+      const deadline = new Date(created.getTime() + 48 * 3_600_000);
+      add('payment_deadline', new Date(deadline.getTime() - lead.payment * 3_600_000));
+    }
+  }
+
+  return jobs;
+}
+
+/**
+ * Cancel pending reminder jobs for a booking that was cancelled or whose
+ * dates changed. Safe to call repeatedly.
+ */
+export async function cancelStaleReminders(
+  bookingId: string,
+  event?:    ReminderEvent,
+): Promise<number> {
+  return cancelBookingReminders(bookingId, event);
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -467,7 +719,7 @@ async function processDisputeReminders(
  */
 export async function runReminderScheduler(): Promise<ServiceResponse<ReminderResult>> {
   const { checkIn, checkOut, payment, dispute } = getLeadTimeHours();
-  const result: ReminderResult = { sent: 0, skipped: 0, errors: 0 };
+  const result: ReminderResult = { sent: 0, skipped: 0, errors: 0, cancelled: 0 };
 
   await processCheckInReminders(checkIn, result);
   await processCheckOutReminders(checkOut, result);

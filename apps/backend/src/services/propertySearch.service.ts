@@ -3,6 +3,42 @@ import type { ServiceResponse } from './index.js';
 import { isFeaturedNow, FEATURED_CAP, type Property, type AdvancedSearchFilters } from './property.service.js';
 import { recordSearchMetric } from './searchPerformance.service.js';
 import { isSlowQuery } from '../utils/searchMetrics.js';
+import { occupancySchema, type Occupancy } from '../schemas/occupancy.schema.js';
+
+/**
+ * Validate an optional occupancy filter with the shared occupancy schema.
+ * Returns the parsed occupancy (or undefined when omitted) so search
+ * eligibility uses exactly the same guest semantics as quote/booking.
+ */
+function parseOccupancyFilter(
+  occupancy: unknown,
+): { ok: true; value: Occupancy | undefined } | { ok: false; error: string } {
+  if (occupancy === undefined || occupancy === null) {
+    return { ok: true, value: undefined };
+  }
+  const parsed = occupancySchema.safeParse(occupancy);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid occupancy' };
+  }
+  return { ok: true, value: parsed.data };
+}
+
+/**
+ * Total guest count for an occupancy filter. Search matches listings whose
+ * `max_guests` can accommodate the whole party (adults + children).
+ */
+function totalGuests(occupancy: Occupancy): number {
+  return occupancy.adults + occupancy.children;
+}
+
+/**
+ * Stable cache key fragment for an occupancy filter so cached search results
+ * never leak across different guest counts.
+ */
+export function occupancyCacheKey(occupancy: Occupancy | undefined): string {
+  if (!occupancy) return 'occ:none';
+  return `occ:a${occupancy.adults}:c${occupancy.children}`;
+}
 
 type SearchEndpoint = 'text' | 'nearby';
 
@@ -169,18 +205,25 @@ export function promoteFeatureToTop(
 
 export async function searchPropertiesByQuery(
   query: string,
+  occupancy?: Occupancy,
 ): Promise<ServiceResponse<(Property & { is_featured: boolean })[]>> {
   const startedAt = performance.now();
-  const result = await runTextSearch(query);
+  const result = await runTextSearch(query, occupancy);
   reportSearch('text', query, startedAt, result);
   return result;
 }
 
 async function runTextSearch(
   query: string,
+  occupancy?: Occupancy,
 ): Promise<ServiceResponse<(Property & { is_featured: boolean })[]>> {
   const q = query.trim();
   if (!q) return { success: true, data: [] };
+
+  const parsedOccupancy = parseOccupancyFilter(occupancy);
+  if (!parsedOccupancy.ok) {
+    return { success: false, error: parsedOccupancy.error };
+  }
 
   // Use the search_properties_ranked RPC which applies ts_rank_cd against
   // the weighted search_vector (A=title, B=city, C=description, D=amenities)
@@ -197,7 +240,15 @@ async function runTextSearch(
 
   // RPC returns jsonb rows; each row is a full property object with an
   // extra `rank` field added by the function.
-  const properties = (data ?? []) as Property[];
+  let properties = (data ?? []) as Property[];
+
+  // Enforce occupancy eligibility server-side so search agrees with checkout:
+  // a listing is only eligible when its max_guests covers the whole party.
+  if (parsedOccupancy.value) {
+    const guests = totalGuests(parsedOccupancy.value);
+    properties = properties.filter((p) => (p.max_guests ?? 0) >= guests);
+  }
+
   if (properties.length === 0) return { success: true, data: [] };
 
   // Promote featured listings to the top (capped at FEATURED_CAP).
@@ -221,6 +272,13 @@ export async function computeZeroResultSuggestions(
   filters: AdvancedSearchFilters,
 ): Promise<ZeroResultSuggestion[]> {
   const suggestions: ZeroResultSuggestion[] = [];
+
+  // Validate any occupancy carried on the filters with the shared schema so
+  // suggestion counts use the same guest semantics as search and checkout.
+  const parsedOccupancy = parseOccupancyFilter(filters.occupancy);
+  if (!parsedOccupancy.ok) {
+    return [];
+  }
 
   const countWithFilters = async (overrides: Partial<AdvancedSearchFilters>): Promise<number> => {
     const merged = { ...filters, ...overrides };
@@ -253,6 +311,9 @@ export async function computeZeroResultSuggestions(
       q = q.in('property_type', merged.property_types);
     }
     if (merged.guests !== undefined) q = q.gte('max_guests', merged.guests);
+    if (merged.occupancy) {
+      q = q.gte('max_guests', totalGuests(merged.occupancy));
+    }
     if (merged.amenities && merged.amenities.length > 0) {
       q = q.contains('amenities', merged.amenities);
     }
@@ -434,6 +495,9 @@ function applyNonPriceFilters<T>(
     q = q.in('property_type', filters.property_types);
   }
   if (filters.guests !== undefined) q = q.gte('max_guests', filters.guests);
+  if (filters.occupancy) {
+    q = q.gte('max_guests', totalGuests(filters.occupancy));
+  }
   if (filters.amenities && filters.amenities.length > 0) {
     q = q.contains('amenities', filters.amenities);
   }

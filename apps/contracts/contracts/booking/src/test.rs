@@ -1680,6 +1680,185 @@ mod tests {
         assert_eq!(client.get_booking(&id).total_price, i128::MAX);
     }
 
+    // ─── Occupancy Limit Tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_create_booking_at_max_guests_succeeds() {
+        let (env, booking_cid, listing_cid, _admin) = make_env_with_listing();
+        let client = BookingContractClient::new(&env, &booking_cid);
+        let listing_client = PropertyListingContractClient::new(&env, &listing_cid);
+        let owner = Address::generate(&env);
+        let tenant = Address::generate(&env);
+
+        let property_id = listing_client.create_listing(
+            &owner,
+            &String::from_str(&env, "Test Property"),
+            &String::from_str(&env, "A nice place"),
+            &100_0000000_i128,
+        );
+        listing_client.set_max_guests(&owner, &property_id, &4_u32);
+
+        let id = client.create_booking(
+            &tenant,
+            &property_id,
+            &1_000_u64,
+            &1_007_u64,
+            &700_0000000_i128,
+            &4_u32,
+        );
+
+        let booking = client.get_booking(&id);
+        assert_eq!(booking.guests, 4);
+        assert_eq!(booking.status, BookingStatus::Pending);
+    }
+
+    #[test]
+    #[should_panic(expected = "Guest count exceeds listing capacity")]
+    fn test_create_booking_above_max_guests_panics() {
+        let (env, booking_cid, listing_cid, _admin) = make_env_with_listing();
+        let client = BookingContractClient::new(&env, &booking_cid);
+        let listing_client = PropertyListingContractClient::new(&env, &listing_cid);
+        let owner = Address::generate(&env);
+        let tenant = Address::generate(&env);
+
+        let property_id = listing_client.create_listing(
+            &owner,
+            &String::from_str(&env, "Test Property"),
+            &String::from_str(&env, "A nice place"),
+            &100_0000000_i128,
+        );
+        listing_client.set_max_guests(&owner, &property_id, &4_u32);
+
+        client.create_booking(
+            &tenant,
+            &property_id,
+            &1_000_u64,
+            &1_007_u64,
+            &700_0000000_i128,
+            &5_u32,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Guest count must be at least 1")]
+    fn test_create_booking_zero_guests_panics() {
+        let (env, booking_cid, listing_cid, _admin) = make_env_with_listing();
+        let client = BookingContractClient::new(&env, &booking_cid);
+        let owner = Address::generate(&env);
+        let tenant = Address::generate(&env);
+        let property_id = create_property(&env, &listing_cid, &owner);
+
+        client.create_booking(
+            &tenant,
+            &property_id,
+            &1_000_u64,
+            &1_007_u64,
+            &700_0000000_i128,
+            &0_u32,
+        );
+    }
+
+    #[test]
+    fn test_update_occupancy_within_limits_succeeds() {
+        let (env, booking_cid, listing_cid, _admin) = make_env_with_listing();
+        let client = BookingContractClient::new(&env, &booking_cid);
+        let listing_client = PropertyListingContractClient::new(&env, &listing_cid);
+        let owner = Address::generate(&env);
+        let tenant = Address::generate(&env);
+
+        let property_id = listing_client.create_listing(
+            &owner,
+            &String::from_str(&env, "Test Property"),
+            &String::from_str(&env, "A nice place"),
+            &100_0000000_i128,
+        );
+        listing_client.set_max_guests(&owner, &property_id, &4_u32);
+
+        let id = client.create_booking(
+            &tenant,
+            &property_id,
+            &1_000_u64,
+            &1_007_u64,
+            &700_0000000_i128,
+            &2_u32,
+        );
+
+        client.update_occupancy(&tenant, &id, &4_u32);
+        assert_eq!(client.get_booking(&id).guests, 4);
+    }
+
+    #[test]
+    #[should_panic(expected = "Guest count exceeds listing capacity")]
+    fn test_update_occupancy_above_max_guests_panics() {
+        let (env, booking_cid, listing_cid, _admin) = make_env_with_listing();
+        let client = BookingContractClient::new(&env, &booking_cid);
+        let listing_client = PropertyListingContractClient::new(&env, &listing_cid);
+        let owner = Address::generate(&env);
+        let tenant = Address::generate(&env);
+
+        let property_id = listing_client.create_listing(
+            &owner,
+            &String::from_str(&env, "Test Property"),
+            &String::from_str(&env, "A nice place"),
+            &100_0000000_i128,
+        );
+        listing_client.set_max_guests(&owner, &property_id, &4_u32);
+
+        let id = client.create_booking(
+            &tenant,
+            &property_id,
+            &1_000_u64,
+            &1_007_u64,
+            &700_0000000_i128,
+            &2_u32,
+        );
+
+        client.update_occupancy(&tenant, &id, &5_u32);
+    }
+
+    #[test]
+    #[should_panic(expected = "Guest count must be at least 1")]
+    fn test_update_occupancy_zero_guests_panics() {
+        let (env, booking_cid, listing_cid, _admin) = make_env_with_listing();
+        let client = BookingContractClient::new(&env, &booking_cid);
+        let owner = Address::generate(&env);
+        let tenant = Address::generate(&env);
+        let property_id = create_property(&env, &listing_cid, &owner);
+
+        let id = client.create_booking(
+            &tenant,
+            &property_id,
+            &1_000_u64,
+            &1_007_u64,
+            &700_0000000_i128,
+            &2_u32,
+        );
+
+        client.update_occupancy(&tenant, &id, &0_u32);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_update_occupancy_unauthorized() {
+        let (env, booking_cid, listing_cid, _admin) = make_env_with_listing();
+        let client = BookingContractClient::new(&env, &booking_cid);
+        let owner = Address::generate(&env);
+        let tenant = Address::generate(&env);
+        let attacker = Address::generate(&env);
+        let property_id = create_property(&env, &listing_cid, &owner);
+
+        let id = client.create_booking(
+            &tenant,
+            &property_id,
+            &1_000_u64,
+            &1_007_u64,
+            &700_0000000_i128,
+            &2_u32,
+        );
+
+        client.update_occupancy(&attacker, &id, &3_u32);
+    }
+
     // ─── Gas / TTL Tests ──────────────────────────────────────────────────────
 
     #[test]

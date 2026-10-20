@@ -5,6 +5,23 @@
 import { z } from 'zod';
 import type { NextFunction, Request, Response } from 'express';
 import { ValidationError } from '@/types/errors.js';
+import { occupancySchema } from '@/services/occupancy.service.js';
+
+// ─── Occupancy schema (shared) ────────────────────────────────────────────────
+
+export { occupancySchema };
+
+/**
+ * Normalises a payload that may carry either the legacy `guest_count` field or
+ * the structured `occupancy` object. When only `guest_count` is supplied it is
+ * mapped to `occupancy.adults` so existing clients remain backward compatible.
+ */
+function normalizeOccupancy(data: Record<string, unknown>): Record<string, unknown> {
+  if (data.occupancy === undefined && data.guest_count !== undefined) {
+    return { ...data, occupancy: { adults: data.guest_count, children: 0 } };
+  }
+  return data;
+}
 
 // ─── Create booking schema ────────────────────────────────────────────────────
 
@@ -22,10 +39,21 @@ export const createBookingSchema = z
       .string({ required_error: 'check_out is required' })
       .date('check_out must be a valid ISO date (YYYY-MM-DD)'),
 
+    /**
+     * Legacy guest count. Kept for backward compatibility; when supplied without
+     * `occupancy` it is mapped to `occupancy.adults`.
+     */
     guest_count: z
-      .number({ required_error: 'guest_count is required', invalid_type_error: 'guest_count must be a number' })
+      .number({ invalid_type_error: 'guest_count must be a number' })
       .int('guest_count must be an integer')
-      .positive('guest_count must be a positive integer'),
+      .positive('guest_count must be a positive integer')
+      .optional(),
+
+    /**
+     * Structured occupancy (adults/children). Required unless `guest_count` is
+     * supplied, in which case it is derived from `guest_count`.
+     */
+    occupancy: occupancySchema.optional(),
 
     rules_acknowledged_at: z
       .string({ required_error: 'rules_acknowledged_at is required' })
@@ -57,24 +85,37 @@ export const createBookingSchema = z
       .optional(),
   })
   .refine(
+    (data) => data.occupancy !== undefined || data.guest_count !== undefined,
+    { message: 'occupancy or guest_count is required', path: ['occupancy'] },
+  )
+  .refine(
     (data) => new Date(data.check_out) > new Date(data.check_in),
     { message: 'check_out must be after check_in', path: ['check_out'] },
   )
   .refine(
     (data) => new Date(data.check_in) >= new Date(new Date().toISOString().split('T')[0]),
     { message: 'check_in must not be in the past', path: ['check_in'] },
-  );
+  )
+  .transform(normalizeOccupancy);
 
 // ─── Update booking schema ────────────────────────────────────────────────────
 
-export const updateBookingSchema = z.object({
-  status: z.enum(['Pending', 'Confirmed', 'Cancelled', 'Completed', 'Disputed'], {
-    errorMap: () => ({
-      message: 'status must be one of: Pending, Confirmed, Cancelled, Completed, Disputed',
-    }),
-  }).optional(),
-  escrow_id: z.string().max(255).optional(),
-});
+export const updateBookingSchema = z
+  .object({
+    status: z.enum(['Pending', 'Confirmed', 'Cancelled', 'Completed', 'Disputed'], {
+      errorMap: () => ({
+        message: 'status must be one of: Pending, Confirmed, Cancelled, Completed, Disputed',
+      }),
+    }).optional(),
+    escrow_id: z.string().max(255).optional(),
+    guest_count: z
+      .number({ invalid_type_error: 'guest_count must be a number' })
+      .int('guest_count must be an integer')
+      .positive('guest_count must be a positive integer')
+      .optional(),
+    occupancy: occupancySchema.optional(),
+  })
+  .transform(normalizeOccupancy);
 
 // ─── Cancel booking schema ────────────────────────────────────────────────────
 
@@ -125,6 +166,7 @@ export const requestModificationSchema = z.object({
     .int('guest_count must be an integer')
     .positive('guest_count must be a positive integer')
     .optional(),
+  occupancy: occupancySchema.optional(),
   reason: z
     .string()
     .max(1000, 'reason must not exceed 1000 characters')
@@ -132,7 +174,7 @@ export const requestModificationSchema = z.object({
 }).refine(
   (data) => new Date(data.requested_end) > new Date(data.requested_start),
   { message: 'requested_end must be after requested_start', path: ['requested_end'] },
-);
+).transform(normalizeOccupancy);
 
 // ─── Middleware factory ───────────────────────────────────────────────────────
 

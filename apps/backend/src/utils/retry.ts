@@ -111,6 +111,79 @@ function normalizeOptions(options: RetryOptions): Required<RetryOptions> {
   };
 }
 
+/**
+ * Error thrown when a receipt rendering attempt fails.
+ *
+ * Rendering failures are the only class of error that the receipt retry
+ * helper will retry.  Financial mutations (ledger writes, payment captures,
+ * refunds) must never be wrapped in a retry loop, so they are deliberately
+ * excluded from this type.
+ */
+export class ReceiptRenderError extends Error {
+  constructor(message: string, public readonly cause?: unknown) {
+    super(message);
+    this.name = 'ReceiptRenderError';
+  }
+}
+
+export interface ReceiptRenderRetryOptions extends RetryOptions {
+  /**
+   * Optional hook invoked before each retry.  It must be side-effect free with
+   * respect to financial state — it exists for logging/metrics only.
+   */
+  onRetry?: (attempt: number, error: unknown, delayMs: number) => void;
+}
+
+/**
+ * Retry a *pure* receipt rendering function.
+ *
+ * Guarantees:
+ *  - Only `ReceiptRenderError` (or errors explicitly classified as rendering
+ *    failures) are retried.  Any other error is rethrown immediately so that
+ *    financial mutations are never re-executed.
+ *  - The render function must be idempotent: it receives the same immutable
+ *    snapshot on every attempt and must not mutate it.  The snapshot is frozen
+ *    defensively before the first call.
+ *  - No payment/ledger side effects are triggered by retries; the helper only
+ *    re-invokes the supplied renderer.
+ *
+ * @param render   Idempotent renderer producing the receipt artifact.
+ * @param snapshot Immutable financial snapshot used as renderer input.
+ * @param options  Retry configuration (attempts, delays, backoff).
+ */
+export async function retryReceiptRender<T, S extends object>(
+  render: (snapshot: Readonly<S>) => Promise<T>,
+  snapshot: S,
+  options: ReceiptRenderRetryOptions = {}
+): Promise<T> {
+  const config: Required<RetryOptions> = normalizeOptions(options);
+  const frozenSnapshot = Object.freeze({ ...snapshot }) as Readonly<S>;
+  let attempt = 0;
+
+  while (attempt < config.maxAttempts) {
+    attempt++;
+    try {
+      return await render(frozenSnapshot);
+    } catch (error) {
+      const isRenderFailure = error instanceof ReceiptRenderError;
+      const isLastAttempt = attempt >= config.maxAttempts;
+
+      if (!isRenderFailure || isLastAttempt) {
+        // Non-render errors (e.g. financial mutation failures) and exhausted
+        // retries are surfaced without further attempts.
+        throw error;
+      }
+
+      const delay = calculateNextDelay(attempt - 1, config);
+      options.onRetry?.(attempt, error, delay);
+      await sleep(delay);
+    }
+  }
+
+  // Unreachable: the loop either returns or throws.
+  throw new ReceiptRenderError('Receipt rendering failed without a result');
+}
+
 export async function retryDependencyConnections(
   options: RetryOptions = {}
 ): Promise<void> {

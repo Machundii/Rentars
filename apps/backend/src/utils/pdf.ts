@@ -66,6 +66,73 @@ export function pdfStr(s: string): string {
 }
 
 /**
+ * Normalise a value for deterministic rendering inside a receipt snapshot.
+ *
+ * Coerces null/undefined to an empty string, trims surrounding whitespace,
+ * collapses internal whitespace runs to a single space, and strips control
+ * characters that are not representable in a PDF string literal. This keeps
+ * regenerated receipts byte-for-byte identical for the same snapshot inputs
+ * (issue #764).
+ */
+export function receiptText(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  const raw = typeof value === 'string' ? value : String(value);
+  return raw
+    // Drop control chars except tab/newline (which pdfStr later escapes).
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    // Collapse whitespace runs (including tabs/newlines) to a single space.
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Render a transaction reference (e.g. Stripe payment intent / charge id) for
+ * display on a receipt. References are opaque identifiers, so they are
+ * normalised but never truncated or reformatted — the full reference must be
+ * preserved so the receipt reconciles with ledger records (issue #764).
+ */
+export function receiptTransactionRef(ref: unknown): string {
+  return receiptText(ref);
+}
+
+/**
+ * Render the policy version that applied at booking time. Versions are
+ * rendered verbatim (after normalisation) so the receipt records exactly which
+ * policy snapshot governed the booking (issue #764).
+ */
+export function receiptPolicyVersion(version: unknown): string {
+  return receiptText(version);
+}
+
+/**
+ * Format a monetary amount deterministically for a receipt.
+ *
+ * Accepts integer minor units (e.g. cents) plus an ISO-4217 currency code and
+ * returns a stable string such as "12.34 USD". Using integer minor units avoids
+ * floating-point drift so regenerated receipts always reconcile with the
+ * ledger. Invalid inputs fall back to "0.00 <CUR>" rather than throwing, so a
+ * rendering retry can never corrupt financial data (issue #764).
+ */
+export function receiptAmount(minorUnits: unknown, currency: unknown): string {
+  const cur = receiptText(currency).toUpperCase() || 'XXX';
+
+  let n: number;
+  if (typeof minorUnits === 'number' && Number.isFinite(minorUnits)) {
+    n = Math.trunc(minorUnits);
+  } else if (typeof minorUnits === 'string' && /^-?\d+$/.test(minorUnits.trim())) {
+    n = parseInt(minorUnits.trim(), 10);
+  } else {
+    n = 0;
+  }
+
+  const negative = n < 0;
+  const abs = Math.abs(n);
+  const whole = Math.floor(abs / 100);
+  const frac = (abs % 100).toString().padStart(2, '0');
+  return `${negative ? '-' : ''}${whole}.${frac} ${cur}`;
+}
+
+/**
  * Approximate character width for Helvetica at size 1.
  * Uses a simplified table based on standard PDF metrics.
  */
@@ -140,6 +207,11 @@ export class PdfBuilder {
   /**
    * Render text at position (x, y) where y is from the *top* of the page
    * (caller-friendly). Internally converted to PDF bottom-origin.
+   *
+   * Dynamic content is always passed through pdfStr so that parentheses,
+   * backslashes, and newlines in transaction references or policy versions
+   * cannot break the content stream. This keeps regenerated receipts
+   * byte-for-byte identical for the same snapshot (issue #764).
    */
   text(content: string, x: number, yFromTop: number, opts: TextOptions = {}): this {
     const size = opts.size ?? 10;

@@ -2,6 +2,10 @@ import { syncAllBookings, syncAllProperties, reconcileAllPendingEscrows } from '
 import { purgeExpired as purgeExpiredIdempotencyKeys } from './idempotency.service.js';
 import { BookingService } from './booking.service.js';
 import { processDueAccountDeletions } from './privacy.service.js';
+import {
+  processDueReminders,
+  cancelRemindersForBooking,
+} from './reminder.service.js';
 
 const bookingService = new BookingService();
 
@@ -10,6 +14,7 @@ const RECONCILIATION_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const IDEMPOTENCY_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const BOOKING_EXPIRY_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 const ACCOUNT_DELETION_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const REMINDER_INTERVAL_MS = 60 * 1000; // 1 minute
 const MAX_CONCURRENT_RECONCILIATIONS = 5;
 const INITIAL_BACKOFF_MS = 1000; // 1 second
 const MAX_BACKOFF_MS = 30000; // 30 seconds
@@ -112,6 +117,13 @@ export function startSyncScheduler(): void {
     processDueAccountDeletions().catch((err) => console.error('[privacy] Deletion worker error:', err));
   }, ACCOUNT_DELETION_INTERVAL_MS);
 
+  // Booking reminders — runs every minute. Each reminder is scheduled against
+  // the property's local timezone and dispatched at most once per channel via
+  // the idempotency ledger, so worker restarts never duplicate sends.
+  setInterval(() => {
+    runReminderDispatch().catch((err) => console.error('[reminders] Scheduler error:', err));
+  }, REMINDER_INTERVAL_MS);
+
   // Run an initial cleanup shortly after startup so stale keys don't linger
   // across a server restart that happens to be more than 24 h after creation.
   setTimeout(() => {
@@ -120,6 +132,11 @@ export function startSyncScheduler(): void {
     );
     runBookingExpiryCleanup().catch((err) =>
       console.error('[expiry] Initial cleanup error:', err),
+    );
+    // Catch up on any reminders that came due while the worker was down.
+    // Idempotency keys guarantee already-sent reminders are not re-sent.
+    runReminderDispatch().catch((err) =>
+      console.error('[reminders] Initial dispatch error:', err),
     );
   }, 30_000); // 30 seconds after startup
 
@@ -157,8 +174,35 @@ export function startSyncScheduler(): void {
     `[sync] Scheduler started — sync interval: ${SYNC_INTERVAL_MS / 1000}s, ` +
     `reconciliation interval: ${RECONCILIATION_INTERVAL_MS / 1000}s, ` +
     `idempotency cleanup interval: ${IDEMPOTENCY_CLEANUP_INTERVAL_MS / 1000}s, ` +
-    `booking expiry interval: ${BOOKING_EXPIRY_INTERVAL_MS / 1000}s`,
+    `booking expiry interval: ${BOOKING_EXPIRY_INTERVAL_MS / 1000}s, ` +
+    `reminder interval: ${REMINDER_INTERVAL_MS / 1000}s`,
   );
+}
+
+async function runReminderDispatch(): Promise<void> {
+  const result = await processDueReminders();
+  if (result.success) {
+    const { sent, skipped, cancelled } = result.data ?? { sent: 0, skipped: 0, cancelled: 0 };
+    if (sent > 0 || cancelled > 0) {
+      console.log(
+        `[reminders] Sent ${sent} reminder(s), skipped ${skipped}, cancelled ${cancelled} stale job(s)`,
+      );
+    }
+  } else {
+    console.error(`[reminders] Dispatch failed: ${result.error}`);
+  }
+}
+
+/**
+ * Cancel any pending reminder jobs for a booking that has been modified or
+ * cancelled. Called from booking lifecycle hooks so stale reminders never fire.
+ */
+export async function cancelBookingReminders(bookingId: string): Promise<void> {
+  try {
+    await cancelRemindersForBooking(bookingId);
+  } catch (err) {
+    console.error(`[reminders] Failed to cancel reminders for booking ${bookingId}:`, err);
+  }
 }
 
 async function runIdempotencyCleanup(): Promise<void> {

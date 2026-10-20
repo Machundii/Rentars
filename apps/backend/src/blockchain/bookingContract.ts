@@ -26,6 +26,10 @@ import {
 import { buildPrepareAndSign, extractReturnValue } from './transactionUtils.js';
 import { ContractError } from './errors.js';
 import type { BookingStatus, EscrowStatus } from './types.js';
+import {
+  occupancySchema,
+  type Occupancy,
+} from '../schemas/occupancy.js';
 
 function requireContractId(): void {
   if (!BOOKING_CONTRACT_ID) {
@@ -84,11 +88,16 @@ export async function checkAvailability(
 /**
  * Create an on-chain booking record and return the assigned on-chain booking ID.
  *
+ * Occupancy is validated against the shared occupancy schema before being
+ * passed to the contract so that guest counts cannot bypass host-configured
+ * limits at the on-chain boundary.
+ *
  * @param propertyId - On-chain u64 property ID.
  * @param userId - Stellar address of the tenant.
  * @param startDate - Check-in as Unix timestamp (seconds).
  * @param endDate - Check-out as Unix timestamp (seconds).
  * @param totalPrice - Total price in USDC stroops (i128).
+ * @param occupancy - Guest counts (adults/children/infants/pets).
  */
 export async function createBookingOnChain(
   propertyId: bigint,
@@ -96,8 +105,11 @@ export async function createBookingOnChain(
   startDate: bigint,
   endDate: bigint,
   totalPrice: bigint,
+  occupancy: Occupancy,
 ): Promise<bigint> {
   requireContractId();
+
+  const parsedOccupancy = occupancySchema.parse(occupancy);
 
   const server = getSorobanServer();
   const contract = new Contract(BOOKING_CONTRACT_ID);
@@ -109,6 +121,10 @@ export async function createBookingOnChain(
     nativeToScVal(startDate, { type: 'u64' }),
     nativeToScVal(endDate, { type: 'u64' }),
     nativeToScVal(totalPrice, { type: 'i128' }),
+    nativeToScVal(parsedOccupancy.adults, { type: 'u32' }),
+    nativeToScVal(parsedOccupancy.children, { type: 'u32' }),
+    nativeToScVal(parsedOccupancy.infants, { type: 'u32' }),
+    nativeToScVal(parsedOccupancy.pets, { type: 'u32' }),
   );
 
   const tx = await buildPrepareAndSign(server, [op]);
@@ -322,6 +338,7 @@ export async function getBookingWithEscrow(bookingId: bigint): Promise<{
   property_owner: string;
   tenant: string;
   total_price: bigint;
+  occupancy: Occupancy;
 }> {
   requireContractId();
 
@@ -343,12 +360,22 @@ export async function getBookingWithEscrow(bookingId: bigint): Promise<{
     .build();
 
   const retval = await simulateReadOnly(server, tx, 'get_booking');
-  return scValToNative(retval) as {
+  const raw = scValToNative(retval) as {
     id: bigint;
     status: BookingStatus;
     escrow_status: EscrowStatus;
     property_owner: string;
     tenant: string;
     total_price: bigint;
+    occupancy?: Partial<Occupancy> | null;
   };
+
+  const occupancy = occupancySchema.parse({
+    adults: raw.occupancy?.adults ?? 1,
+    children: raw.occupancy?.children ?? 0,
+    infants: raw.occupancy?.infants ?? 0,
+    pets: raw.occupancy?.pets ?? 0,
+  });
+
+  return { ...raw, occupancy };
 }

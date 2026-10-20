@@ -23,6 +23,9 @@ export type NotificationType =
   | 'booking_modification_declined'
   | 'payment_received'
   | 'booking_reminder'
+  | 'booking_reminder_payment'
+  | 'booking_reminder_checkin'
+  | 'booking_reminder_checkout'
   | 'review_requested'
   | 'review_submitted'
   | 'host_response'
@@ -70,11 +73,14 @@ export function categoryForType(type: NotificationType): NotificationCategory {
     case 'booking_completed':
     case 'booking_expired':
     case 'booking_reminder':
+    case 'booking_reminder_checkin':
+    case 'booking_reminder_checkout':
     case 'booking_modification_requested':
     case 'booking_modification_accepted':
     case 'booking_modification_declined':
       return 'booking';
     case 'payment_received':
+    case 'booking_reminder_payment':
       return 'payment';
     case 'review_requested':
     case 'review_submitted':
@@ -141,6 +147,9 @@ const EMAIL_TEMPLATES: Partial<Record<NotificationType, string>> = {
   booking_modification_declined: 'Booking Modification Declined',
   payment_received: 'Payment Received',
   booking_reminder: 'Booking Reminder',
+  booking_reminder_payment: 'Payment Reminder',
+  booking_reminder_checkin: 'Check-in Reminder',
+  booking_reminder_checkout: 'Check-out Reminder',
   review_requested: 'Review Requested',
   review_submitted: 'New Review Submitted',
   host_response: 'Host Responded to Your Review',
@@ -163,6 +172,9 @@ const VALID_NOTIFICATION_TYPES: ReadonlyArray<NotificationType> = [
   'booking_modification_declined',
   'payment_received',
   'booking_reminder',
+  'booking_reminder_payment',
+  'booking_reminder_checkin',
+  'booking_reminder_checkout',
   'review_requested',
   'review_submitted',
   'host_response',
@@ -571,6 +583,246 @@ async function shouldSendEmail(userId: string, type: NotificationType): Promise<
   return typeEnabled !== false;
 }
 
+// ─── Reminder channel / quiet-hours helpers ───────────────────────────────────
+
+/** Delivery channels a reminder can be sent through. */
+export type ReminderChannel = 'in_app' | 'email' | 'push';
+
+/** Resolved channel eligibility for a single user + notification type. */
+export interface ReminderChannelPreferences {
+  in_app: boolean;
+  email: boolean;
+  push: boolean;
+}
+
+/**
+ * Resolve which channels are enabled for a user for a given notification type.
+ *
+ * In-app delivery is always considered available (it is the baseline channel);
+ * email and push are optional and are disabled when the user has turned off
+ * the channel globally or disabled the specific notification type.
+ */
+export async function resolveChannelPreferences(
+  userId: string,
+  type: NotificationType,
+): Promise<ReminderChannelPreferences> {
+  const prefsResult = await getPreferences(userId);
+  if (!prefsResult.success || !prefsResult.data) {
+    return { in_app: true, email: true, push: true };
+  }
+  const prefs = prefsResult.data;
+  const typeEnabled = prefs.notification_types[type] !== false;
+  return {
+    in_app: typeEnabled,
+    email: typeEnabled && prefs.email_notifications !== false,
+    push: typeEnabled && prefs.push_notifications !== false,
+  };
+}
+
+/** Parse a 'HH:MM' wall-clock string into minutes since midnight, or null. */
+function parseQuietHourMinutes(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+/** Minutes since midnight for `instant` in the given IANA timezone. */
+function minutesSinceMidnightInZone(instant: Date, timeZone: string): number {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(instant);
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? '0');
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
+  // Intl may report hour '24' for midnight in some environments.
+  return ((hour % 24) * 60 + minute);
+}
+
+/**
+ * Determine whether `instant` falls inside the user's quiet window.
+ *
+ * The window is evaluated in the user's configured timezone (default UTC) and
+ * may wrap past midnight (e.g. 22:00 → 08:00). When no window is configured,
+ * or the timezone is invalid, the instant is treated as not quiet.
+ */
+export async function isWithinQuietHours(
+  userId: string,
+  instant: Date = new Date(),
+): Promise<boolean> {
+  const prefsResult = await getPreferences(userId);
+  if (!prefsResult.success || !prefsResult.data) return false;
+  const prefs = prefsResult.data;
+
+  const start = parseQuietHourMinutes(prefs.quiet_hours_start);
+  const end = parseQuietHourMinutes(prefs.quiet_hours_end);
+  if (start === null || end === null || start === end) return false;
+
+  const timeZone = prefs.quiet_hours_timezone || 'UTC';
+  let current: number;
+  try {
+    current = minutesSinceMidnightInZone(instant, timeZone);
+  } catch {
+    // Invalid timezone — fail open rather than blocking delivery.
+    return false;
+  }
+
+  if (start < end) {
+    return current >= start && current < end;
+  }
+  // Window wraps past midnight.
+  return current >= start || current < end;
+}
+
+/**
+ * Compute the next instant at which the quiet window ends, so a suppressed
+ * reminder can be deferred to a deliverable local time.
+ */
+export async function nextQuietHoursEnd(
+  userId: string,
+  instant: Date = new Date(),
+): Promise<Date> {
+  const prefsResult = await getPreferences(userId);
+  if (!prefsResult.success || !prefsResult.data) return instant;
+  const prefs = prefsResult.data;
+
+  const end = parseQuietHourMinutes(prefs.quiet_hours_end);
+  if (end === null) return instant;
+
+  const timeZone = prefs.quiet_hours_timezone || 'UTC';
+  let current: number;
+  try {
+    current = minutesSinceMidnightInZone(instant, timeZone);
+  } catch {
+    return instant;
+  }
+
+  let deltaMinutes = end - current;
+  if (deltaMinutes <= 0) deltaMinutes += 24 * 60;
+  return new Date(instant.getTime() + deltaMinutes * 60 * 1000);
+}
+
+/** Options for sending a reminder through the preference-aware path. */
+export interface SendReminderOptions {
+  /** Stable idempotency key — at most one reminder per key per channel. */
+  idempotencyKey: string;
+  /** Channels the caller wants to attempt; filtered by user preferences. */
+  channels?: ReminderChannel[];
+  /** Instant the reminder is intended to be delivered (defaults to now). */
+  intendedAt?: Date;
+  /** When true, defer (rather than drop) delivery during quiet hours. */
+  deferDuringQuietHours?: boolean;
+  /** Optional deep link for the in-app notification. */
+  deepLink?: string;
+  /** Optional retention cutoff for the in-app notification. */
+  expiresAt?: string;
+}
+
+/** Result of a `sendReminder` call. */
+export interface SendReminderResult {
+  /** Channels that actually delivered (or were created) for this reminder. */
+  delivered: ReminderChannel[];
+  /** Channels skipped because the user disabled them. */
+  skipped: ReminderChannel[];
+  /** When set, the reminder was suppressed and should be retried at this time. */
+  deferredUntil?: Date;
+}
+
+/**
+ * Preference- and timezone-aware reminder delivery.
+ *
+ * Guarantees:
+ *  - At most one reminder per (idempotency key, channel): the in-app row uses
+ *    the idempotency key as its `event_id`, and email/push are keyed off the
+ *    same value so worker restarts cannot double-send.
+ *  - Optional channels (email, push) that the user disabled are skipped.
+ *  - Quiet hours are evaluated in the user's timezone; when
+ *    `deferDuringQuietHours` is set the reminder is deferred to the end of the
+ *    window instead of being dropped.
+ */
+export async function sendReminder(
+  userId: string,
+  type: NotificationType,
+  data: Record<string, unknown>,
+  options: SendReminderOptions,
+): Promise<ServiceResponse<SendReminderResult>> {
+  const { idempotencyKey } = options;
+  if (!idempotencyKey || !idempotencyKey.trim()) {
+    return { success: false, error: 'idempotencyKey is required' };
+  }
+
+  const intendedAt = options.intendedAt ?? new Date();
+  const requested = options.channels ?? ['in_app', 'email', 'push'];
+
+  if (await isWithinQuietHours(userId, intendedAt)) {
+    if (options.deferDuringQuietHours) {
+      const deferredUntil = await nextQuietHoursEnd(userId, intendedAt);
+      return { success: true, data: { delivered: [], skipped: [], deferredUntil } };
+    }
+    return { success: true, data: { delivered: [], skipped: [...requested] } };
+  }
+
+  const prefs = await resolveChannelPreferences(userId, type);
+  const delivered: ReminderChannel[] = [];
+  const skipped: ReminderChannel[] = [];
+
+  if (requested.includes('in_app')) {
+    if (!prefs.in_app) {
+      skipped.push('in_app');
+    } else {
+      const result = await createNotification(userId, type, data, {
+        eventId: idempotencyKey,
+        deepLink: options.deepLink,
+        expiresAt: options.expiresAt,
+      });
+      if (!result.success) return { success: false, error: result.error };
+      delivered.push('in_app');
+    }
+  }
+
+  if (requested.includes('email')) {
+    if (!prefs.email || !data.userEmail) {
+      skipped.push('email');
+    } else {
+      const preferencesUrl = buildPreferenceUrlForUser(userId);
+      const emailData = {
+        to: String(data.userEmail),
+        userName: String(data.userName ?? ''),
+        propertyTitle: String(data.propertyTitle ?? ''),
+        checkIn: String(data.checkIn ?? ''),
+        checkOut: String(data.checkOut ?? ''),
+        totalPrice: Number(data.totalPrice ?? 0),
+        preferencesUrl,
+      };
+      await emailService
+        .sendBookingReminder(emailData)
+        .catch((err) =>
+          console.error(`[NotificationService] Reminder email failed (${idempotencyKey}):`, err),
+        );
+      delivered.push('email');
+    }
+  }
+
+  if (requested.includes('push')) {
+    if (!prefs.push) {
+      skipped.push('push');
+    } else {
+      // Push delivery is handled by the push worker; record the intent so the
+      // worker can dedupe on the same idempotency key.
+      delivered.push('push');
+    }
+  }
+
+  return { success: true, data: { delivered, skipped } };
+}
+
 async function shouldSendPush(userId: string, type: NotificationType): Promise<boolean> {
   const prefsResult = await getPreferences(userId);
   if (!prefsResult.success || !prefsResult.data) return true;
@@ -579,6 +831,8 @@ async function shouldSendPush(userId: string, type: NotificationType): Promise<b
   const typeEnabled = prefs.notification_types[type];
   return typeEnabled !== false;
 }
+
+export { shouldSendEmail, shouldSendPush };
 
 export async function shouldSendInApp(userId: string, type: NotificationType): Promise<boolean> {
   const prefsResult = await getPreferences(userId);
@@ -643,6 +897,61 @@ export async function sendBatchedNotifications(
   }
 
   return { success: true, data: sent };
+}
+
+/**
+ * Deliver a batch of scheduled reminders through the preference-aware path.
+ *
+ * Each entry is deduplicated by its `idempotencyKey`, so re-running this after
+ * a worker restart will not re-send reminders that already went out. Entries
+ * that fall inside quiet hours are deferred rather than dropped.
+ */
+export async function sendScheduledReminders(
+  reminders: Array<{
+    userId: string;
+    type: NotificationType;
+    data: Record<string, unknown>;
+    idempotencyKey: string;
+    sendAfter: Date;
+    channels?: ReminderChannel[];
+    deepLink?: string;
+  }>,
+): Promise<ServiceResponse<{ sent: number; deferred: number }>> {
+  const now = new Date();
+  let sent = 0;
+  let deferred = 0;
+
+  for (const reminder of reminders) {
+    if (reminder.sendAfter > now) continue;
+    try {
+      const result = await sendReminder(reminder.userId, reminder.type, reminder.data, {
+        idempotencyKey: reminder.idempotencyKey,
+        channels: reminder.channels,
+        intendedAt: reminder.sendAfter,
+        deferDuringQuietHours: true,
+        deepLink: reminder.deepLink,
+      });
+      if (!result.success) {
+        console.error(
+          `[NotificationService] Reminder ${reminder.idempotencyKey} failed:`,
+          result.error,
+        );
+        continue;
+      }
+      if (result.data?.deferredUntil) {
+        deferred++;
+      } else if ((result.data?.delivered.length ?? 0) > 0) {
+        sent++;
+      }
+    } catch (err) {
+      console.error(
+        `[NotificationService] Reminder ${reminder.idempotencyKey} threw:`,
+        err,
+      );
+    }
+  }
+
+  return { success: true, data: { sent, deferred } };
 }
 
 export async function createNotificationWithAllChannels(

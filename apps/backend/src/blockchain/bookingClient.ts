@@ -124,7 +124,10 @@ export class BookingClient {
   /**
    * Build the XDR operation for create_booking.
    *
-   * ABI: create_booking(tenant, property_id, check_in, check_out, total_price) -> u64
+   * ABI: create_booking(tenant, property_id, check_in, check_out, total_price, adults, children) -> u64
+   *
+   * Occupancy is encoded as u32 args so the contract can enforce
+   * host-configured guest limits server-side.
    */
   buildCreateBooking(params: CreateBookingParams): xdr.Operation {
     return this.contract.call(
@@ -134,6 +137,8 @@ export class BookingClient {
       nativeToScVal(params.check_in, { type: 'u64' }),
       nativeToScVal(params.check_out, { type: 'u64' }),
       nativeToScVal(params.total_price, { type: 'i128' }),
+      nativeToScVal(params.adults, { type: 'u32' }),
+      nativeToScVal(params.children, { type: 'u32' }),
     );
   }
 

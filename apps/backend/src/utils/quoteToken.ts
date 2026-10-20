@@ -12,6 +12,18 @@
 
 import { createHmac, timingSafeEqual } from 'crypto';
 
+/**
+ * Occupancy the quote was priced for. Binds guest counts into the signed
+ * payload so a tenant cannot confirm a quote priced for fewer guests and then
+ * book with more (or vice versa).
+ */
+export interface QuoteTokenOccupancy {
+  adults: number;
+  children: number;
+  infants: number;
+  pets: number;
+}
+
 export interface QuoteTokenClaims {
   /** Property ID the quote was computed for. */
   pid: string;
@@ -23,6 +35,8 @@ export interface QuoteTokenClaims {
   tot: number;
   /** Listing version: the property's updated_at when the quote was computed. */
   ver: string;
+  /** Occupancy the quote was computed for. */
+  occ: QuoteTokenOccupancy;
   /** Expiry instant (ISO 8601). */
   exp: string;
 }

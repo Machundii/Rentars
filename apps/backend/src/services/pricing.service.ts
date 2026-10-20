@@ -1,6 +1,11 @@
 import { supabase } from '@/config/supabase.js';
 import type { ServiceResponse } from './index.js';
 import { signQuoteToken, verifyQuoteToken } from '@/utils/quoteToken.js';
+import {
+  occupancySchema,
+  type Occupancy,
+  validateOccupancyAgainstListing,
+} from '@/schemas/occupancy.js';
 
 const PLATFORM_FEE_PCT = 0.05;
 /** How long a quote (and its token) stays valid before the client must re-quote. */
@@ -56,6 +61,13 @@ export interface PriceQuote {
   /** Signed binding of this total to its inputs; null when signing is not configured. */
   quote_token: string | null;
   unavailable_intervals?: Array<{ start: string; end: string; reason: string }>;
+  /** Guest counts this quote was priced for. */
+  occupancy: Occupancy;
+}
+
+/** Stable key fragment for occupancy, used in quote versions and cache keys. */
+export function occupancyKey(occupancy: Occupancy): string {
+  return `a${occupancy.adults}c${occupancy.children}`;
 }
 
 /**
@@ -393,6 +405,7 @@ export async function getPropertyQuote(
   propertyId: string,
   start: string,
   end: string,
+  occupancyInput?: Occupancy,
 ): Promise<ServiceResponse<PriceQuote>> {
   // Validate dates
   const checkInDate = new Date(start);
@@ -406,10 +419,24 @@ export async function getPropertyQuote(
     return { success: false, error: 'Check-in date must be before check-out date' };
   }
 
+  // Validate occupancy with the shared schema before doing any work.
+  const parsedOccupancy = occupancySchema.safeParse(occupancyInput);
+  if (!parsedOccupancy.success) {
+    return {
+      success: false,
+      error: parsedOccupancy.error.issues[0]?.message ?? 'Invalid occupancy',
+      statusCode: 400,
+      code: 'INVALID_OCCUPANCY',
+    };
+  }
+  const occupancy = parsedOccupancy.data;
+
   // Fetch property details
   const { data: property, error: propError } = await supabase
     .from('properties')
-    .select('base_price_per_night, updated_at, status, draft_status, deleted_at, moderation_state')
+    .select(
+      'base_price_per_night, updated_at, status, draft_status, deleted_at, moderation_state, max_guests, max_adults, max_children',
+    )
     .eq('id', propertyId)
     .single();
 
@@ -425,6 +452,9 @@ export async function getPropertyQuote(
     draft_status: string | null;
     deleted_at: string | null;
     moderation_state: string | null;
+    max_guests: number | null;
+    max_adults: number | null;
+    max_children: number | null;
   };
   if (
     listing.deleted_at ||
@@ -433,6 +463,22 @@ export async function getPropertyQuote(
     listing.moderation_state === 'hidden'
   ) {
     return { success: false, error: 'Property not found' };
+  }
+
+  // Enforce host-configured capacity before pricing anything.
+  const capacity = validateOccupancyAgainstListing(occupancy, {
+    max_guests: listing.max_guests,
+    max_adults: listing.max_adults,
+    max_children: listing.max_children,
+  });
+  if (!capacity.success) {
+    return {
+      success: false,
+      error: capacity.error,
+      statusCode: 400,
+      code: 'OCCUPANCY_EXCEEDS_CAPACITY',
+      details: { occupancy, limits: capacity.limits },
+    };
   }
 
   const baseRate = listing.base_price_per_night;
@@ -491,8 +537,11 @@ export async function getPropertyQuote(
   const platformFee = Math.round(dynamicTotal * PLATFORM_FEE_PCT * 100) / 100;
   const total = Math.round((dynamicTotal + platformFee) * 100) / 100;
 
-  // Create quote version hash from property state
-  const quoteVersion = Buffer.from(`${propertyId}:${propertyUpdatedAt}`).toString('base64');
+  // Create quote version hash from property state and occupancy so a different
+  // guest count can never reuse a quote issued for another occupancy.
+  const quoteVersion = Buffer.from(
+    `${propertyId}:${propertyUpdatedAt}:${occupancyKey(occupancy)}`,
+  ).toString('base64');
   const expiresAt = new Date(Date.now() + QUOTE_TTL_MS).toISOString();
 
   // Bind the total to its exact inputs so booking can verify it has not drifted.
@@ -502,6 +551,7 @@ export async function getPropertyQuote(
     co: checkOutDate.toISOString(),
     tot: total,
     ver: propertyUpdatedAt,
+    occ: occupancyKey(occupancy),
     exp: expiresAt,
   });
 
@@ -523,6 +573,7 @@ export async function getPropertyQuote(
       available: unavailableIntervals.length === 0,
       quote_token: quoteToken,
       unavailable_intervals: unavailableIntervals.length > 0 ? unavailableIntervals : undefined,
+      occupancy,
     },
   };
 }
@@ -531,6 +582,8 @@ export interface QuotedTotalInput {
   propertyId: string;
   checkIn: string;
   checkOut: string;
+  /** Guest counts for the stay; validated against listing capacity. */
+  occupancy: Occupancy;
   /** Total the tenant submitted, in dollars. */
   clientTotal: number;
   /** Quote token from a previous getPropertyQuote call, if the client kept one. */
@@ -555,13 +608,26 @@ export async function assertQuotedTotal(
   const { propertyId, checkIn, checkOut, clientTotal, quoteToken } = input;
   const now = input.now ?? Date.now();
 
-  const quoted = await getPropertyQuote(propertyId, checkIn, checkOut);
+  const parsedOccupancy = occupancySchema.safeParse(input.occupancy);
+  if (!parsedOccupancy.success) {
+    return {
+      success: false,
+      error: parsedOccupancy.error.issues[0]?.message ?? 'Invalid occupancy',
+      statusCode: 400,
+      code: 'INVALID_OCCUPANCY',
+    };
+  }
+  const occupancy = parsedOccupancy.data;
+
+  const quoted = await getPropertyQuote(propertyId, checkIn, checkOut, occupancy);
   if (!quoted.success || !quoted.data) {
     const notFound = quoted.error === 'Property not found';
     return {
       success: false,
       error: quoted.error ?? 'Could not price this stay',
       statusCode: notFound ? 404 : 400,
+      code: quoted.code,
+      details: quoted.details,
     };
   }
 
@@ -594,6 +660,16 @@ export async function assertQuotedTotal(
       };
     }
 
+    // A quote issued for a different guest count cannot be reused.
+    if (claims.occ !== occupancyKey(occupancy)) {
+      return {
+        success: false,
+        error: 'Quote does not match the requested occupancy; request a new quote',
+        statusCode: 400,
+        code: 'QUOTE_MISMATCH',
+      };
+    }
+
     if (Date.parse(claims.exp) <= now) {
       return {
         success: false,
@@ -605,7 +681,9 @@ export async function assertQuotedTotal(
     }
 
     // The listing changed after this quote was issued.
-    const issuedVersion = Buffer.from(`${propertyId}:${claims.ver}`).toString('base64');
+    const issuedVersion = Buffer.from(
+      `${propertyId}:${claims.ver}:${occupancyKey(occupancy)}`,
+    ).toString('base64');
     if (issuedVersion !== quote.version) {
       return {
         success: false,

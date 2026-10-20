@@ -73,3 +73,72 @@ CREATE POLICY payments_tenant_read ON payments
 
 CREATE POLICY payments_service_role_all ON payments
   USING (auth.role() = 'service_role');
+
+-- ─── booking_receipts ─────────────────────────────────────────────────────────
+-- Immutable, versioned financial snapshots for completed bookings (issue #039).
+-- Each row stores the canonical settled snapshot (JSONB) plus the policy
+-- version that applied at booking time, so receipts are reproducible and
+-- regeneration never mutates financial data.
+
+CREATE TABLE IF NOT EXISTS booking_receipts (
+  id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id     UUID        NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+  version        INTEGER     NOT NULL CHECK (version > 0),
+  snapshot       JSONB       NOT NULL,
+  rendered_pdf   BYTEA,
+  storage_ref    TEXT,
+  policy_version TEXT        NOT NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT booking_receipts_version_unique UNIQUE (booking_id, version),
+  CONSTRAINT booking_receipts_render_target CHECK (rendered_pdf IS NOT NULL OR storage_ref IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_booking_receipts_booking ON booking_receipts (booking_id, version DESC);
+
+-- Immutability: receipts may only be updated to attach rendered output
+-- (rendered_pdf / storage_ref) when it was previously NULL. Financial data
+-- (snapshot, policy_version, version, booking_id) can never change.
+CREATE OR REPLACE FUNCTION booking_receipts_immutable()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.booking_id     IS DISTINCT FROM OLD.booking_id
+     OR NEW.version        IS DISTINCT FROM OLD.version
+     OR NEW.snapshot       IS DISTINCT FROM OLD.snapshot
+     OR NEW.policy_version IS DISTINCT FROM OLD.policy_version
+     OR NEW.created_at     IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'booking_receipts rows are immutable';
+  END IF;
+
+  IF OLD.rendered_pdf IS NOT NULL AND NEW.rendered_pdf IS DISTINCT FROM OLD.rendered_pdf THEN
+    RAISE EXCEPTION 'booking_receipts rendered_pdf is immutable once set';
+  END IF;
+
+  IF OLD.storage_ref IS NOT NULL AND NEW.storage_ref IS DISTINCT FROM OLD.storage_ref THEN
+    RAISE EXCEPTION 'booking_receipts storage_ref is immutable once set';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_booking_receipts_immutable ON booking_receipts;
+CREATE TRIGGER trg_booking_receipts_immutable
+  BEFORE UPDATE ON booking_receipts
+  FOR EACH ROW EXECUTE FUNCTION booking_receipts_immutable();
+
+-- RLS: only the booking participant (tenant or host) may read receipts;
+-- service role has full access. No client-side writes are permitted.
+ALTER TABLE booking_receipts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY booking_receipts_participant_read ON booking_receipts
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM bookings b
+      WHERE b.id = booking_receipts.booking_id
+        AND (b.tenant_id = auth.uid() OR b.host_id = auth.uid())
+    )
+  );
+
+CREATE POLICY booking_receipts_service_role_all ON booking_receipts
+  USING (auth.role() = 'service_role');

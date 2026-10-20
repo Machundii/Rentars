@@ -15,6 +15,19 @@ import {
   buildCallbackResponse,
 } from '@/services/paymentCallback.service.js';
 
+/** Minimum time (ms) to spend on failure paths to blunt timing oracles. */
+const FAILURE_DELAY_MS = 250;
+
+/** Provider-compatible generic failure body — never reveals internals. */
+function genericFailureBody(): { status: 'error'; message: string } {
+  return { status: 'error', message: 'Callback rejected' };
+}
+
+/** Sleep helper used to normalise failure-path timing. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * POST /api/v1/payments/callback
  *
@@ -25,25 +38,48 @@ import {
  */
 export async function handlePaymentCallback(req: Request, res: Response): Promise<void> {
   const rawBody: Buffer = (req as Request & { rawBody?: Buffer }).rawBody ?? Buffer.alloc(0);
-  const signature = req.headers['x-trustlesswork-signature'] as string | undefined;
+  const rawSignature = req.headers['x-trustlesswork-signature'];
+  const signature = Array.isArray(rawSignature) ? rawSignature[0] : rawSignature;
 
   const webhookSecret = process.env.TRUSTLESS_WORK_WEBHOOK_SECRET ?? '';
   const expectedProviderId = process.env.TRUSTLESS_WORK_PROVIDER_ID ?? '';
 
   if (!webhookSecret) {
-    // Misconfiguration — fail open-safe: reject all callbacks
-    res.status(500).json({ status: 'error', message: 'Webhook secret not configured' });
+    // Misconfiguration — fail closed: reject all callbacks without leaking why.
+    await delay(FAILURE_DELAY_MS);
+    res.status(500).json(genericFailureBody());
     return;
   }
 
-  const result = await processProviderCallback(
-    rawBody,
-    signature,
-    req.body,
-    webhookSecret,
-    expectedProviderId,
-  );
+  // Missing raw bytes or signature header can never be verified.
+  if (rawBody.length === 0 || !signature) {
+    await delay(FAILURE_DELAY_MS);
+    res.status(400).json(genericFailureBody());
+    return;
+  }
 
-  const responseBody = buildCallbackResponse(result.data!);
-  res.status(result.statusCode ?? (result.success ? 200 : 400)).json(responseBody);
+  let result: Awaited<ReturnType<typeof processProviderCallback>>;
+  try {
+    result = await processProviderCallback(
+      rawBody,
+      signature,
+      req.body,
+      webhookSecret,
+      expectedProviderId,
+    );
+  } catch {
+    // Never surface internal errors; normalise timing on the failure path.
+    await delay(FAILURE_DELAY_MS);
+    res.status(400).json(genericFailureBody());
+    return;
+  }
+
+  if (!result.success || !result.data) {
+    await delay(FAILURE_DELAY_MS);
+    res.status(result.statusCode ?? 400).json(genericFailureBody());
+    return;
+  }
+
+  const responseBody = buildCallbackResponse(result.data);
+  res.status(result.statusCode ?? 200).json(responseBody);
 }

@@ -34,6 +34,7 @@ import {
   type BookingActor,
 } from './bookingAuthorization.service.js';
 import { auditLogger } from './auditLogger.service.js';
+import { validateOccupancy } from './occupancy.service.js';
 
 // ─── State machine ────────────────────────────────────────────────────────────
 
@@ -162,6 +163,7 @@ export interface BlockchainServices {
     startDate: bigint,
     endDate: bigint,
     totalPrice: bigint,
+    guestCount?: number,
   ): Promise<bigint>;
 
   cancelBookingOnChain(bookingId: bigint, callerAddress: string): Promise<void>;
@@ -468,7 +470,7 @@ export class BookingService {
     }
 
     if (!Number.isFinite(guest_count) || !Number.isInteger(guest_count) || guest_count < 1) {
-      return { success: false, error: 'guest_count must be at least 1' };
+      return { success: false, error: 'guest_count must be at least 1', statusCode: 400 };
     }
 
     // Require rules acknowledgement
@@ -537,11 +539,15 @@ export class BookingService {
       };
     }
 
-    // Capacity check
-    if (prop.max_guests !== undefined && prop.max_guests !== null && guest_count > prop.max_guests) {
+    // Capacity check — shared occupancy validator (server-side, cannot be bypassed).
+    const occupancy = validateOccupancy(guest_count, prop.max_guests);
+    if (!occupancy.success) {
       return {
         success: false,
-        error: `Guest count (${guest_count}) exceeds property capacity (${prop.max_guests})`,
+        error: occupancy.error,
+        statusCode: 400,
+        code: occupancy.code,
+        details: occupancy.details,
       };
     }
 
@@ -819,6 +825,7 @@ export class BookingService {
           checkInTs,
           checkOutTs,
           BigInt(Math.round(chargedTotal * 1e7)),
+          guest_count,
         );
 
         loggingService.logBlockchainOperation('createBookingOnChain', {
@@ -1752,16 +1759,17 @@ export class BookingService {
       };
     }
 
-    // Guest-count validation (only when the caller requests an occupancy change)
+    // Guest-count validation (only when the caller requests an occupancy change).
+    // Uses the shared occupancy validator so limits match search/quote/booking.
     if (guestCount !== undefined && guestCount !== null) {
-      if (!Number.isFinite(guestCount) || !Number.isInteger(guestCount) || guestCount < 1) {
-        return { success: false, error: 'guest_count must be a positive integer' };
-      }
-      const maxGuests = booking.properties?.max_guests;
-      if (maxGuests !== undefined && maxGuests !== null && guestCount > maxGuests) {
+      const occupancy = validateOccupancy(guestCount, booking.properties?.max_guests);
+      if (!occupancy.success) {
         return {
           success: false,
-          error: `Guest count (${guestCount}) exceeds property capacity (${maxGuests})`,
+          error: occupancy.error,
+          statusCode: 400,
+          code: occupancy.code,
+          details: occupancy.details,
         };
       }
     }
@@ -1808,6 +1816,8 @@ export class BookingService {
         status: 'pending',
         requested_by: tenantId,
         reason: reason ?? null,
+        original_guest_count: booking.guest_count ?? null,
+        requested_guest_count: guestCount ?? null,
         original_total_price: booking.total_price ?? null,
         booking_snapshot: bookingSnapshot as Record<string, unknown>,
       })
@@ -1857,7 +1867,7 @@ export class BookingService {
 
     const { data: bookingData, error: fetchError } = await supabase
       .from('bookings')
-      .select('*, properties!inner(owner_id, base_price_per_night)')
+      .select('*, properties!inner(owner_id, base_price_per_night, max_guests)')
       .eq('id', bookingId)
       .single();
 
@@ -1866,7 +1876,7 @@ export class BookingService {
     }
 
     const booking = bookingData as Booking & {
-      properties: { owner_id: string; base_price_per_night: number };
+      properties: { owner_id: string; base_price_per_night: number; max_guests?: number | null };
     };
 
     if (booking.properties.owner_id !== hostId) {
@@ -1891,6 +1901,23 @@ export class BookingService {
         success: false,
         error: `Modification is already ${modification.status}`,
       };
+    }
+
+    // Re-validate occupancy against the listing's *current* limits before
+    // persisting anything. A host may have lowered max_guests since the request.
+    const requestedGuestCount =
+      modification.requested_guest_count ?? booking.guest_count ?? null;
+    if (requestedGuestCount !== null && requestedGuestCount !== undefined) {
+      const occupancy = validateOccupancy(requestedGuestCount, booking.properties.max_guests);
+      if (!occupancy.success) {
+        return {
+          success: false,
+          error: occupancy.error,
+          statusCode: 400,
+          code: occupancy.code,
+          details: occupancy.details,
+        };
+      }
     }
 
     const availabilityResult = await checkDateRangeAvailability(
@@ -1928,7 +1955,7 @@ export class BookingService {
       updated_at:  new Date().toISOString(),
     };
 
-    // Apply occupancy change if the modification included one
+    // Apply occupancy change if the modification included one (already validated above)
     if (modification.requested_guest_count !== undefined && modification.requested_guest_count !== null) {
       bookingPatch.guest_count = modification.requested_guest_count;
     }

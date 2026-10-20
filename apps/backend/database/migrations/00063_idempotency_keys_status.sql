@@ -5,8 +5,10 @@
 -- (safe to replay the stored response).
 --
 -- Values:
---   processing — the owning request inserted this record and is still executing.
---   completed  — the owning request finished; response_body holds the replay data.
+--   processing  — the owning request inserted this record and is still executing.
+--   completed   — the owning request finished; response_body holds the replay data.
+--   quarantined — the record was flagged for manual review (e.g. a callback that
+--                 failed signature, timestamp, account, amount, or booking checks).
 --
 -- Concurrent requests that find an existing 'processing' record can return 409
 -- instead of silently creating a duplicate booking.
@@ -21,3 +23,8 @@ UPDATE idempotency_keys SET status = 'completed' WHERE status IS NULL OR status 
 CREATE INDEX IF NOT EXISTS idx_idempotency_keys_status
   ON idempotency_keys(status)
   WHERE status = 'processing';
+
+-- Index to allow fast lookup of quarantined records for review/reconciliation.
+CREATE INDEX IF NOT EXISTS idx_idempotency_keys_quarantined
+  ON idempotency_keys(status)
+  WHERE status = 'quarantined';

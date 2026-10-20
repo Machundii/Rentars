@@ -41,6 +41,32 @@ export function redisKey(domain: RedisDomain, ...parts: (string | number)[]): st
   return [REDIS_KEY_PREFIX, domain, ...parts.map(sanitize)].join(':');
 }
 
+/**
+ * Canonical occupancy key segment.
+ *
+ * Cache and quote keys MUST include occupancy so that eligibility and price
+ * cannot be shared across different guest counts. The segment is derived from
+ * the same normalized adult/child semantics used by the occupancy schema, so
+ * equivalent guest counts always map to the same key part and different counts
+ * never collide.
+ *
+ * @example occupancyKeyPart({ adults: 2, children: 1 }) // 'occ:a2:c1'
+ */
+export function occupancyKeyPart(occupancy: {
+  adults: number;
+  children?: number;
+}): string {
+  const adults = Math.trunc(Number(occupancy.adults));
+  const children = Math.trunc(Number(occupancy.children ?? 0));
+  if (!Number.isFinite(adults) || !Number.isFinite(children)) {
+    throw new Error('redis: occupancy parts must be finite numbers');
+  }
+  if (adults < 0 || children < 0) {
+    throw new Error('redis: occupancy parts must be non-negative');
+  }
+  return sanitize(`occ:a${adults}:c${children}`);
+}
+
 /** Clamp a requested TTL into the allowed (0, REDIS_MAX_TTL_SECONDS] range. */
 export function boundedTtl(ttlSeconds: number): number {
   if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {

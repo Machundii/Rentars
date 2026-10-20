@@ -123,6 +123,42 @@ export interface TransitionResult {
   replayed: boolean;
 }
 
+/**
+ * Canonical, immutable financial snapshot of a settled payment.
+ *
+ * This is the single source of truth consumed by receipt generation
+ * (see receipt.service.ts). It is derived only from the persisted payment
+ * record — never from client input or transient callback payloads — so
+ * amounts always reconcile with the ledger.
+ */
+export interface SettledPaymentSnapshot {
+  paymentId: string;
+  bookingId: string;
+  tenantId: string;
+  /** Settled amount in USDC stroops (integer). */
+  amountStroops: bigint;
+  currency: 'USDC';
+  /** Stellar network the settlement occurred on. */
+  network: 'testnet' | 'mainnet';
+  /** On-chain transaction hash of the settlement, if recorded. */
+  transactionHash: string | null;
+  /** TrustlessWork escrow contract ID, if applicable. */
+  escrowId: string | null;
+  /** Quote hash signed at intent creation (amount integrity reference). */
+  quoteHash: string | null;
+  /** Policy version that applied at booking time. */
+  policyVersion: string | null;
+  /** Ledger event hash that produced the settled state. */
+  ledgerEventHash: string | null;
+  /** Payment version at the time of settlement. */
+  version: number;
+  settledAt: string;
+}
+
+/** Payment statuses considered financially settled for receipt purposes. */
+const SETTLED_STATUSES: ReadonlyArray<PaymentStatus> = ['confirmed', 'refunded'];
+=======
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
@@ -363,6 +399,58 @@ export async function getPaymentByBookingId(bookingId: string): Promise<Payment 
     .eq('booking_id', bookingId)
     .single();
   return data ? rowToPayment(data) : null;
+}
+
+/**
+ * Read the canonical settled-payment snapshot for a booking.
+ *
+ * Used by receipt generation to build a stable financial snapshot from
+ * canonical settled records (never from callback payloads). Returns null
+ * when the payment does not exist or has not reached a settled state.
+ *
+ * @param bookingId - Booking whose settled payment should be read.
+ */
+export async function getSettledPaymentSnapshot(
+  bookingId: string,
+): Promise<ServiceResponse<SettledPaymentSnapshot>> {
+  const payment = await getPaymentByBookingId(bookingId);
+  if (!payment) {
+    return { success: false, error: 'Payment not found for booking' };
+  }
+
+  if (!SETTLED_STATUSES.includes(payment.status)) {
+    return {
+      success: false,
+      error: `Payment for booking is not settled (status: ${payment.status})`,
+    };
+  }
+
+  const meta = payment.metadata ?? {};
+  const network =
+    meta.network === 'mainnet' || meta.network === 'testnet'
+      ? (meta.network as 'testnet' | 'mainnet')
+      : 'testnet';
+  const policyVersion =
+    typeof meta.policy_version === 'string' ? meta.policy_version : null;
+
+  return {
+    success: true,
+    data: {
+      paymentId: payment.id,
+      bookingId: payment.booking_id,
+      tenantId: payment.tenant_id,
+      amountStroops: payment.amount_stroops,
+      currency: payment.currency,
+      network,
+      transactionHash: payment.stellar_tx_hash,
+      escrowId: payment.escrow_id,
+      quoteHash: payment.quote_hash,
+      policyVersion,
+      ledgerEventHash: payment.last_event_hash,
+      version: payment.version,
+      settledAt: payment.updated_at,
+    },
+  };
 }
 
 // ─── Row mapping ──────────────────────────────────────────────────────────────

@@ -11,8 +11,102 @@
  * this endpoint.
  */
 
+import { z } from 'zod';
 import { supabase } from '@/config/supabase.js';
 import type { ServiceResponse } from './index.js';
+
+// ─── Shared occupancy schema ──────────────────────────────────────────────────
+
+/**
+ * Canonical occupancy shape shared by search, quote, booking create/modify,
+ * receipts, and contract arguments. All counts are non-negative integers and
+ * at least one guest (adult or child) must be present.
+ */
+export const occupancySchema = z
+  .object({
+    adults:   z.number().int().min(0).max(50),
+    children: z.number().int().min(0).max(50).default(0),
+    infants:  z.number().int().min(0).max(50).default(0),
+    pets:     z.number().int().min(0).max(50).default(0),
+  })
+  .refine((o) => o.adults + o.children >= 1, {
+    message: 'At least one guest (adult or child) is required',
+    path:    ['adults'],
+  });
+
+export type Occupancy = z.infer<typeof occupancySchema>;
+
+/** Listing fields relevant to occupancy validation. */
+export interface OccupancyListing {
+  max_guests?: number | null;
+  max_adults?: number | null;
+  max_children?: number | null;
+  max_infants?: number | null;
+  max_pets?: number | null;
+}
+
+export interface OccupancyValidationResult {
+  ok:     boolean;
+  errors: string[];
+}
+
+/**
+ * Coerce arbitrary input (query strings, JSON bodies, contract args) into a
+ * canonical Occupancy object. Missing fields default to 0. Throws a ZodError
+ * if the input cannot be represented as a valid occupancy.
+ */
+export function normalizeOccupancy(input: unknown): Occupancy {
+  const raw = (input ?? {}) as Record<string, unknown>;
+  const toInt = (v: unknown): number => {
+    if (v === undefined || v === null || v === '') return 0;
+    const n = typeof v === 'number' ? v : Number(v);
+    return Number.isFinite(n) ? Math.trunc(n) : NaN;
+  };
+  return occupancySchema.parse({
+    adults:   toInt(raw.adults),
+    children: toInt(raw.children),
+    infants:  toInt(raw.infants),
+    pets:     toInt(raw.pets),
+  });
+}
+
+/**
+ * Enforce integer bounds and listing capacity limits. Returns a list of
+ * human-readable errors; empty list means the occupancy is acceptable.
+ */
+export function validateOccupancyAgainstListing(
+  occupancy: Occupancy,
+  listing:   OccupancyListing,
+): OccupancyValidationResult {
+  const errors: string[] = [];
+
+  const parsed = occupancySchema.safeParse(occupancy);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) errors.push(issue.message);
+    return { ok: false, errors };
+  }
+
+  const o = parsed.data;
+  const totalGuests = o.adults + o.children;
+
+  if (listing.max_guests != null && totalGuests > listing.max_guests) {
+    errors.push(`Total guests (${totalGuests}) exceeds listing maximum of ${listing.max_guests}`);
+  }
+  if (listing.max_adults != null && o.adults > listing.max_adults) {
+    errors.push(`Adults (${o.adults}) exceeds listing maximum of ${listing.max_adults}`);
+  }
+  if (listing.max_children != null && o.children > listing.max_children) {
+    errors.push(`Children (${o.children}) exceeds listing maximum of ${listing.max_children}`);
+  }
+  if (listing.max_infants != null && o.infants > listing.max_infants) {
+    errors.push(`Infants (${o.infants}) exceeds listing maximum of ${listing.max_infants}`);
+  }
+  if (listing.max_pets != null && o.pets > listing.max_pets) {
+    errors.push(`Pets (${o.pets}) exceeds listing maximum of ${listing.max_pets}`);
+  }
+
+  return { ok: errors.length === 0, errors };
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

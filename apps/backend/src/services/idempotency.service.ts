@@ -36,6 +36,19 @@ import type { ServiceResponse } from './index.js';
 /** How long an idempotency record is retained before it may be purged. */
 export const IDEMPOTENCY_RETENTION_HOURS = 24;
 
+/**
+ * Reminder jobs are long-lived relative to request idempotency keys: a
+ * check-out reminder may be scheduled days ahead, so its claim record must
+ * survive until well after the reminder window closes.
+ */
+export const REMINDER_KEY_RETENTION_HOURS = 24 * 30;
+
+/** Reminder event kinds that may be scheduled for a booking. */
+export type ReminderEvent = 'payment_deadline' | 'check_in' | 'check_out';
+
+/** Delivery channels a reminder may be sent through. */
+export type ReminderChannel = 'email' | 'sms' | 'push';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface IdempotencyRecord {
@@ -62,6 +75,43 @@ export interface IdempotencyRecord {
 export function hashRequestBody(body: unknown): string {
   const stable = JSON.stringify(body, Object.keys(body as object).sort());
   return createHash('sha256').update(stable).digest('hex');
+}
+
+/**
+ * Build the deterministic idempotency key for a reminder job.
+ *
+ * The key is derived purely from `(bookingId, event, channel)` so that any
+ * worker — including one restarted after a crash — computes the same key and
+ * therefore claims the same job at most once.  The key is also the natural
+ * deduplication key for "at most once per channel".
+ */
+export function buildReminderKey(
+  bookingId: string,
+  event: ReminderEvent,
+  channel: ReminderChannel,
+): string {
+  return `reminder:${bookingId}:${event}:${channel}`;
+}
+
+/**
+ * Stable request hash for a reminder job, used to detect a booking change
+ * (new time, new recipient, etc.) that should replace a previously scheduled
+ * job rather than silently reuse it.
+ */
+export function hashReminderJob(job: {
+  bookingId: string;
+  event: ReminderEvent;
+  channel: ReminderChannel;
+  scheduledFor: string;
+  recipient: string;
+}): string {
+  return hashRequestBody({
+    bookingId: job.bookingId,
+    event: job.event,
+    channel: job.channel,
+    scheduledFor: job.scheduledFor,
+    recipient: job.recipient,
+  });
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────────
@@ -218,6 +268,49 @@ export async function store(
   }
 
   return { success: true, data: data as IdempotencyRecord };
+}
+
+/**
+ * Claim a reminder job exactly once.
+ *
+ * Reminder workers call this before sending.  The claim is an INSERT on the
+ * unique `(user_id, key)` constraint, so concurrent workers (or a worker that
+ * restarts mid-send) can never deliver the same reminder twice.
+ *
+ * @returns
+ *   - `{ claimed: true, id }` when this worker owns the job and should send.
+ *   - `{ claimed: false, existing }` when the job was already claimed; the
+ *     caller must NOT send.  If `existing.request_hash` differs from
+ *     `requestHash` the booking changed and the caller should cancel/replace
+ *     the stale job instead of replaying it.
+ */
+export async function claimReminderJob(
+  bookingId: string,
+  event: ReminderEvent,
+  channel: ReminderChannel,
+  requestHash: string,
+  ownerUserId: string,
+): Promise<ServiceResponse<{ claimed: true; id: string } | { claimed: false; existing: IdempotencyRecord }>> {
+  const key = buildReminderKey(bookingId, event, channel);
+  return lockKey(ownerUserId, key, requestHash);
+}
+
+/**
+ * Mark a claimed reminder job as delivered so it is never re-sent.
+ */
+export async function completeReminderJob(
+  id: string,
+  delivery: Record<string, unknown>,
+): Promise<ServiceResponse<void>> {
+  return completeKey(id, delivery, 200);
+}
+
+/**
+ * Release a reminder claim when delivery failed in a retryable way, allowing
+ * a later worker run to pick the job up again.
+ */
+export async function releaseReminderJob(id: string): Promise<void> {
+  return releaseKey(id);
 }
 
 /**

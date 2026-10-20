@@ -49,6 +49,28 @@ const bookingCreationLimiter = createUserRateLimiter({
   keyPrefix: 'rl:user:booking',
 });
 
+/**
+ * Per-user rate limiter for booking modification requests.
+ * Prevents clients from spamming modification requests (which can be used
+ * to probe capacity/occupancy limits) or receipt regeneration.
+ */
+const bookingModificationLimiter = createUserRateLimiter({
+  windowMs: env.BOOKING_RATE_LIMIT_WINDOW_MS,
+  max: env.BOOKING_RATE_LIMIT_MAX,
+  keyPrefix: 'rl:user:booking:modify',
+});
+
+/**
+ * Per-user rate limiter for receipt downloads.
+ * Receipt rendering is expensive and regeneration must be bounded to avoid
+ * abuse; retries are handled server-side without altering financial data.
+ */
+const bookingReceiptLimiter = createUserRateLimiter({
+  windowMs: env.BOOKING_RATE_LIMIT_WINDOW_MS,
+  max: env.BOOKING_RATE_LIMIT_MAX,
+  keyPrefix: 'rl:user:booking:receipt',
+});
+
 // GET /api/v1/bookings — list current user's bookings (cursor pagination)
 router.get('/', authenticate, validatePagination, listUserBookings);
 
@@ -66,9 +88,18 @@ router.get('/:id/status-history', authenticate, getBookingStatusHistory);
 router.get('/:id/calendar.ics', authenticate, getBookingCalendar);
 
 // GET /api/v1/bookings/:id/receipt.pdf
-router.get('/:id/receipt.pdf', authenticate, getBookingReceipt);
+// Access-controlled: only authenticated participants may download.
+// Rate-limited to bound regeneration attempts; rendering retries never
+// mutate settled financial data.
+router.get(
+  '/:id/receipt.pdf',
+  authenticate,
+  bookingReceiptLimiter,
+  getBookingReceipt,
+);
 
 // POST /api/v1/bookings  (requires email verification)
+// createBookingSchema enforces occupancy (adults/children) within listing limits.
 router.post(
   '/',
   authenticate,
@@ -103,14 +134,28 @@ router.post('/:id/dispute', authenticate, validateBody(raiseDisputeSchema), rais
 router.post('/:id/dispute/resolve', authenticate, validateBody(resolveDisputeSchema), resolveDispute);
 
 // PATCH /api/v1/bookings/:id
-router.patch('/:id', authenticate, validateBody(updateBookingSchema), updateBooking);
+// updateBookingSchema enforces occupancy bounds on modification.
+router.patch(
+  '/:id',
+  authenticate,
+  bookingModificationLimiter,
+  validateBody(updateBookingSchema),
+  updateBooking,
+);
 
 // DELETE /api/v1/bookings/:id
 router.delete('/:id', authenticate, deleteBooking);
 
 // POST /api/v1/bookings/:id/modifications
-// Tenant requests a date change → status: pending
-router.post('/:id/modifications', authenticate, validateBody(requestModificationSchema), requestModification);
+// Tenant requests a date/occupancy change → status: pending
+// requestModificationSchema enforces occupancy bounds on modification.
+router.post(
+  '/:id/modifications',
+  authenticate,
+  bookingModificationLimiter,
+  validateBody(requestModificationSchema),
+  requestModification,
+);
 
 // POST /api/v1/bookings/:id/modifications/:modId/accept
 // Host accepts the date-change request

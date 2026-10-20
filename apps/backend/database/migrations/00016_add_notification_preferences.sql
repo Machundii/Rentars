@@ -5,10 +5,18 @@ CREATE TABLE IF NOT EXISTS notification_preferences (
   email_notifications BOOLEAN DEFAULT TRUE,
   push_notifications BOOLEAN DEFAULT TRUE,
   notification_types JSONB DEFAULT '{}',
+  reminder_email BOOLEAN DEFAULT TRUE,
+  reminder_push BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(user_id)
 );
+
+-- Ensure reminder channel toggles exist on pre-existing tables
+ALTER TABLE notification_preferences
+  ADD COLUMN IF NOT EXISTS reminder_email BOOLEAN DEFAULT TRUE;
+ALTER TABLE notification_preferences
+  ADD COLUMN IF NOT EXISTS reminder_push BOOLEAN DEFAULT TRUE;
 
 CREATE INDEX IF NOT EXISTS idx_notification_preferences_user_id ON notification_preferences(user_id);
 
